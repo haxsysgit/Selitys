@@ -101,6 +101,9 @@ class Analyzer:
         result.config = self._analyze_config()
         result.top_level_dirs = self._describe_top_level_dirs()
         result.top_level_files = self._describe_top_level_files()
+        result.subsystems = self._detect_subsystems()
+        result.risk_areas = self._detect_risk_areas()
+        result.patterns_detected = self._detect_patterns()
 
         return result
 
@@ -291,3 +294,136 @@ class Analyzer:
                 descriptions[str(f.relative_path)] = f"{f.extension or 'unknown'} file ({f.line_count} lines)"
 
         return descriptions
+
+    def _detect_subsystems(self) -> list[Subsystem]:
+        """Detect major subsystems in the codebase."""
+        subsystems = []
+
+        subsystem_patterns = {
+            "services": ("Services", "Business logic and service layer"),
+            "service": ("Services", "Business logic and service layer"),
+            "api": ("API Layer", "HTTP API handlers and endpoints"),
+            "routes": ("Routing", "HTTP route definitions"),
+            "models": ("Data Models", "Database models and entities"),
+            "schemas": ("Schemas", "Data validation and serialization schemas"),
+            "core": ("Core", "Core application configuration and utilities"),
+            "utils": ("Utilities", "Helper functions and utilities"),
+            "auth": ("Authentication", "Authentication and authorization"),
+            "db": ("Database", "Database connection and queries"),
+            "database": ("Database", "Database connection and queries"),
+            "middleware": ("Middleware", "Request/response middleware"),
+            "tasks": ("Background Tasks", "Async tasks and job processing"),
+            "workers": ("Workers", "Background job workers"),
+        }
+
+        seen_names = set()
+        for d in self.structure.directories:
+            dir_name = d.relative_path.name.lower()
+            if dir_name in subsystem_patterns and dir_name not in seen_names:
+                name, desc = subsystem_patterns[dir_name]
+                key_files = [
+                    str(f.relative_path) for f in self.structure.files
+                    if str(f.relative_path).startswith(str(d.relative_path) + "/")
+                    and f.extension == ".py"
+                    and "__init__" not in f.relative_path.name
+                ][:5]
+
+                subsystems.append(Subsystem(
+                    name=name,
+                    directory=str(d.relative_path),
+                    description=desc,
+                    key_files=key_files,
+                ))
+                seen_names.add(dir_name)
+
+        return subsystems
+
+    def _detect_risk_areas(self) -> list[RiskArea]:
+        """Detect risky or fragile areas in the codebase."""
+        risks = []
+
+        for f in self.structure.files:
+            if f.content is None:
+                continue
+
+            # Large files
+            if f.line_count > 500:
+                risks.append(RiskArea(
+                    location=str(f.relative_path),
+                    risk_type="Large file",
+                    description=f"File has {f.line_count} lines, may be difficult to maintain",
+                    severity="low",
+                ))
+
+            # Raw SQL
+            if "execute(" in f.content and ("SELECT" in f.content or "INSERT" in f.content):
+                risks.append(RiskArea(
+                    location=str(f.relative_path),
+                    risk_type="Raw SQL",
+                    description="Contains raw SQL execution, potential SQL injection risk",
+                    severity="medium",
+                ))
+
+            # Hardcoded secrets patterns
+            import re
+            secret_patterns = [
+                r'password\s*=\s*["\'][^"\']+["\']',
+                r'secret\s*=\s*["\'][^"\']+["\']',
+                r'api_key\s*=\s*["\'][^"\']+["\']',
+            ]
+            for pattern in secret_patterns:
+                if re.search(pattern, f.content, re.IGNORECASE):
+                    risks.append(RiskArea(
+                        location=str(f.relative_path),
+                        risk_type="Possible hardcoded secret",
+                        description="Appears to contain hardcoded credentials or secrets",
+                        severity="high",
+                    ))
+                    break
+
+        # Check test coverage
+        test_files = [f for f in self.structure.files if "test" in str(f.relative_path).lower()]
+        code_files = [f for f in self.structure.files if f.extension == ".py" and "test" not in str(f.relative_path).lower()]
+
+        if len(test_files) < len(code_files) * 0.3:
+            risks.append(RiskArea(
+                location="tests/",
+                risk_type="Limited test coverage",
+                description=f"Only {len(test_files)} test files for {len(code_files)} code files",
+                severity="medium",
+            ))
+
+        return risks[:20]
+
+    def _detect_patterns(self) -> list[str]:
+        """Detect architectural patterns in the codebase."""
+        patterns = []
+
+        has_routes = any("route" in str(f.relative_path).lower() for f in self.structure.files)
+        has_services = any("service" in str(f.relative_path).lower() for f in self.structure.files)
+        has_models = any("model" in str(f.relative_path).lower() for f in self.structure.files)
+
+        if has_routes and has_services and has_models:
+            patterns.append("Layered architecture (routes -> services -> models)")
+
+        has_deps = any("dependencies" in str(f.relative_path).lower() or
+                      (f.content and "Depends(" in f.content if f.content else False)
+                      for f in self.structure.files)
+        if has_deps:
+            patterns.append("Dependency injection")
+
+        has_schemas = any("schema" in str(f.relative_path).lower() for f in self.structure.files)
+        if has_schemas:
+            patterns.append("Request/response schema validation")
+
+        has_migrations = any("alembic" in str(f.relative_path).lower() or
+                            "migrations" in str(f.relative_path).lower()
+                            for f in self.structure.directories)
+        if has_migrations:
+            patterns.append("Database migrations")
+
+        has_middleware = any("middleware" in str(f.relative_path).lower() for f in self.structure.files)
+        if has_middleware:
+            patterns.append("Middleware pattern")
+
+        return patterns

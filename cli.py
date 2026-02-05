@@ -80,6 +80,10 @@ def explain(
     generator.generate_overview(overview_path)
     console.print(f"[green]Generated:[/green] {overview_path}")
 
+    architecture_path = output_dir / "selitys-architecture.md"
+    generator.generate_architecture(architecture_path)
+    console.print(f"[green]Generated:[/green] {architecture_path}")
+
     console.print()
     console.print("[bold green]Done.[/bold green]")
 

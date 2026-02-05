@@ -108,3 +108,76 @@ class MarkdownGenerator:
             primary = list(self.structure.languages_detected.keys())[0]
             f.write(f"- **Primary Language:** {primary}\n")
         f.write("\n")
+
+    def generate_architecture(self, output_path: Path) -> None:
+        """Generate selitys-architecture.md."""
+        with open(output_path, "w") as f:
+            self._write_header(f, "Architecture")
+
+            self._write_subsystems_section(f)
+            self._write_patterns_section(f)
+            self._write_coupling_section(f)
+            self._write_risk_section(f)
+
+    def _write_subsystems_section(self, f: TextIO) -> None:
+        """Write Subsystems section."""
+        f.write("## Subsystems\n\n")
+
+        if self.analysis.subsystems:
+            for sub in self.analysis.subsystems:
+                f.write(f"### {sub.name}\n\n")
+                f.write(f"**Directory:** `{sub.directory}/`\n\n")
+                f.write(f"{sub.description}\n\n")
+                if sub.key_files:
+                    f.write("**Key files:**\n")
+                    for kf in sub.key_files:
+                        f.write(f"- `{kf}`\n")
+                    f.write("\n")
+        else:
+            f.write("No clear subsystems detected. The codebase may be relatively flat.\n\n")
+
+    def _write_patterns_section(self, f: TextIO) -> None:
+        """Write Patterns Detected section."""
+        f.write("## Patterns Detected\n\n")
+
+        if self.analysis.patterns_detected:
+            for pattern in self.analysis.patterns_detected:
+                f.write(f"- {pattern}\n")
+            f.write("\n")
+        else:
+            f.write("No specific architectural patterns detected.\n\n")
+
+    def _write_coupling_section(self, f: TextIO) -> None:
+        """Write Coupling and Dependencies section."""
+        f.write("## Coupling and Dependencies\n\n")
+
+        if self.analysis.subsystems:
+            f.write("Based on the detected subsystems, the likely dependency flow is:\n\n")
+            f.write("```\n")
+            subsystem_names = [s.name for s in self.analysis.subsystems]
+            if "Routing" in subsystem_names or "API Layer" in subsystem_names:
+                f.write("API/Routes -> Services -> Models -> Database\n")
+            else:
+                f.write(" -> ".join(subsystem_names[:4]) + "\n")
+            f.write("```\n\n")
+        else:
+            f.write("Unable to determine coupling without clear subsystems.\n\n")
+
+    def _write_risk_section(self, f: TextIO) -> None:
+        """Write Risk Areas section."""
+        f.write("## Risk Areas\n\n")
+
+        if self.analysis.risk_areas:
+            by_severity = {"high": [], "medium": [], "low": []}
+            for risk in self.analysis.risk_areas:
+                by_severity[risk.severity].append(risk)
+
+            for severity in ["high", "medium", "low"]:
+                risks = by_severity[severity]
+                if risks:
+                    f.write(f"### {severity.capitalize()} Severity\n\n")
+                    for risk in risks:
+                        f.write(f"**{risk.risk_type}** - `{risk.location}`\n\n")
+                        f.write(f"{risk.description}\n\n")
+        else:
+            f.write("No significant risk areas detected.\n\n")
