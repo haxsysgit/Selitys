@@ -181,3 +181,35 @@ class MarkdownGenerator:
                         f.write(f"{risk.description}\n\n")
         else:
             f.write("No significant risk areas detected.\n\n")
+
+    def generate_request_flow(self, output_path: Path) -> None:
+        """Generate selitys-request-flow.md."""
+        with open(output_path, "w") as f:
+            self._write_header(f, "Request Flow")
+
+            if not self.analysis.request_flow:
+                f.write("## Overview\n\n")
+                f.write("Unable to trace a clear request flow. This may be a non-API codebase ")
+                f.write("or uses patterns not recognized by selitys.\n\n")
+                return
+
+            flow = self.analysis.request_flow
+
+            f.write("## Overview\n\n")
+            f.write(f"**{flow.name}**\n\n")
+            f.write(f"{flow.description}\n\n")
+
+            f.write("## Step-by-Step Flow\n\n")
+            for step in flow.steps:
+                f.write(f"### {step.order}. {step.location}\n\n")
+                f.write(f"{step.description}\n\n")
+                if step.file_path:
+                    f.write(f"*See:* `{step.file_path}`\n\n")
+
+            f.write("## Key Touchpoints\n\n")
+            if flow.touchpoints:
+                for tp in flow.touchpoints:
+                    f.write(f"- {tp}\n")
+                f.write("\n")
+            else:
+                f.write("No additional touchpoints identified beyond the main flow.\n\n")

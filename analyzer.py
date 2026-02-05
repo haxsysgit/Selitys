@@ -104,6 +104,7 @@ class Analyzer:
         result.subsystems = self._detect_subsystems()
         result.risk_areas = self._detect_risk_areas()
         result.patterns_detected = self._detect_patterns()
+        result.request_flow = self._trace_request_flow()
 
         return result
 
@@ -427,3 +428,118 @@ class Analyzer:
             patterns.append("Middleware pattern")
 
         return patterns
+
+    def _trace_request_flow(self) -> RequestFlow | None:
+        """Trace a typical request through the system."""
+        steps = []
+        touchpoints = []
+        order = 1
+
+        # Find entry point
+        entry_file = None
+        for f in self.structure.files:
+            if f.relative_path.name == "main.py" and len(f.relative_path.parts) <= 2:
+                entry_file = f
+                break
+
+        if not entry_file:
+            return None
+
+        steps.append(RequestFlowStep(
+            order=order,
+            location="Application Entry",
+            description="Request arrives at the ASGI server (likely uvicorn) which hands it to the FastAPI application.",
+            file_path=str(entry_file.relative_path),
+        ))
+        order += 1
+        touchpoints.append(f"Entry: {entry_file.relative_path}")
+
+        # Check for middleware
+        middleware_files = [f for f in self.structure.files if "middleware" in str(f.relative_path).lower()]
+        if middleware_files:
+            steps.append(RequestFlowStep(
+                order=order,
+                location="Middleware",
+                description="Request passes through middleware for logging, authentication, or other cross-cutting concerns.",
+                file_path=str(middleware_files[0].relative_path),
+            ))
+            order += 1
+            touchpoints.append("Middleware processing")
+
+        # Check for router/routes
+        route_files = [f for f in self.structure.files
+                      if "route" in str(f.relative_path).lower()
+                      and f.extension == ".py"
+                      and "__init__" not in f.relative_path.name]
+        if route_files:
+            steps.append(RequestFlowStep(
+                order=order,
+                location="Router",
+                description="FastAPI router matches the request path to a route handler function.",
+                file_path=str(route_files[0].relative_path),
+            ))
+            order += 1
+            touchpoints.append(f"Routes: {len(route_files)} route files")
+
+        # Check for dependencies
+        dep_files = [f for f in self.structure.files if "dependenc" in str(f.relative_path).lower()]
+        if dep_files:
+            steps.append(RequestFlowStep(
+                order=order,
+                location="Dependency Injection",
+                description="FastAPI resolves dependencies (database sessions, auth, etc.) before calling the handler.",
+                file_path=str(dep_files[0].relative_path),
+            ))
+            order += 1
+            touchpoints.append("Dependency injection")
+
+        # Check for services
+        service_files = [f for f in self.structure.files
+                        if "service" in str(f.relative_path).lower()
+                        and f.extension == ".py"
+                        and "__init__" not in f.relative_path.name]
+        if service_files:
+            steps.append(RequestFlowStep(
+                order=order,
+                location="Service Layer",
+                description="Business logic executes in a service class, which may call other services or repositories.",
+                file_path=str(service_files[0].relative_path),
+            ))
+            order += 1
+            touchpoints.append(f"Services: {len(service_files)} service files")
+
+        # Check for models/database
+        model_files = [f for f in self.structure.files
+                      if "model" in str(f.relative_path).lower()
+                      and f.extension == ".py"
+                      and "__init__" not in f.relative_path.name]
+        if model_files:
+            steps.append(RequestFlowStep(
+                order=order,
+                location="Database Interaction",
+                description="Service interacts with the database through SQLAlchemy models.",
+                file_path=str(model_files[0].relative_path),
+            ))
+            order += 1
+            touchpoints.append("Database via SQLAlchemy")
+
+        # Response
+        schema_files = [f for f in self.structure.files if "schema" in str(f.relative_path).lower()]
+        if schema_files:
+            steps.append(RequestFlowStep(
+                order=order,
+                location="Response Serialization",
+                description="Response data is validated and serialized through Pydantic schemas before returning to the client.",
+                file_path=str(schema_files[0].relative_path),
+            ))
+            touchpoints.append("Schema validation on response")
+
+        if len(steps) < 2:
+            return None
+
+        return RequestFlow(
+            name="Typical API Request",
+            description="A standard request through the API layer, from entry to response.",
+            steps=steps,
+            touchpoints=touchpoints,
+        )

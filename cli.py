@@ -84,6 +84,10 @@ def explain(
     generator.generate_architecture(architecture_path)
     console.print(f"[green]Generated:[/green] {architecture_path}")
 
+    request_flow_path = output_dir / "selitys-request-flow.md"
+    generator.generate_request_flow(request_flow_path)
+    console.print(f"[green]Generated:[/green] {request_flow_path}")
+
     console.print()
     console.print("[bold green]Done.[/bold green]")
 
