@@ -105,6 +105,7 @@ class Analyzer:
         result.risk_areas = self._detect_risk_areas()
         result.patterns_detected = self._detect_patterns()
         result.request_flow = self._trace_request_flow()
+        result.first_read_files, result.skip_files = self._recommend_reading_order()
 
         return result
 
@@ -543,3 +544,106 @@ class Analyzer:
             steps=steps,
             touchpoints=touchpoints,
         )
+
+    def _recommend_reading_order(self) -> tuple[list[tuple[str, str, int]], list[tuple[str, str]]]:
+        """Recommend files to read first and files to skip."""
+        first_read: list[tuple[str, str, int]] = []
+        skip_files: list[tuple[str, str]] = []
+        priority = 1
+
+        # Priority 1: Main entry point
+        for f in self.structure.files:
+            if f.relative_path.name == "main.py" and len(f.relative_path.parts) <= 2:
+                first_read.append((
+                    str(f.relative_path),
+                    "Application entry point - start here to understand how the app boots",
+                    priority,
+                ))
+                priority += 1
+                break
+
+        # Priority 2: Config file
+        for f in self.structure.files:
+            if "config" in f.relative_path.name.lower() and f.extension == ".py":
+                first_read.append((
+                    str(f.relative_path),
+                    "Configuration - shows environment variables and app settings",
+                    priority,
+                ))
+                priority += 1
+                break
+
+        # Priority 3: Models (data structure)
+        model_files = [
+            f for f in self.structure.files
+            if "model" in str(f.relative_path).lower()
+            and f.extension == ".py"
+            and "__init__" not in f.relative_path.name
+            and f.line_count > 10
+        ]
+        if model_files:
+            model_file = max(model_files, key=lambda x: x.line_count)
+            first_read.append((
+                str(model_file.relative_path),
+                "Data models - understand what entities exist in the system",
+                priority,
+            ))
+            priority += 1
+
+        # Priority 4: A route file (API surface)
+        route_files = [
+            f for f in self.structure.files
+            if "route" in str(f.relative_path).lower()
+            and f.extension == ".py"
+            and "__init__" not in f.relative_path.name
+        ]
+        if route_files:
+            route_file = max(route_files, key=lambda x: x.line_count)
+            first_read.append((
+                str(route_file.relative_path),
+                "API routes - see what endpoints are exposed and how requests are handled",
+                priority,
+            ))
+            priority += 1
+
+        # Priority 5: A service file (business logic)
+        service_files = [
+            f for f in self.structure.files
+            if "service" in str(f.relative_path).lower()
+            and f.extension == ".py"
+            and "__init__" not in f.relative_path.name
+        ]
+        if service_files:
+            service_file = max(service_files, key=lambda x: x.line_count)
+            first_read.append((
+                str(service_file.relative_path),
+                "Service layer - where the core business logic lives",
+                priority,
+            ))
+            priority += 1
+
+        # Files to skip initially
+        skip_patterns = [
+            ("alembic/versions/", "Migration files - generated, read only when debugging migrations"),
+            ("__pycache__/", "Python cache - auto-generated"),
+            ("conftest.py", "Test fixtures - read when writing tests"),
+            (".lock", "Lock files - dependency management, not code"),
+        ]
+
+        for f in self.structure.files:
+            path_str = str(f.relative_path)
+            for pattern, reason in skip_patterns:
+                if pattern in path_str or path_str.endswith(pattern):
+                    skip_files.append((path_str, reason))
+                    break
+
+        # Also skip test files initially
+        for f in self.structure.files:
+            if "test" in str(f.relative_path).lower() and f.extension == ".py":
+                if (str(f.relative_path), "Test files - read when you need to understand expected behavior") not in skip_files:
+                    skip_files.append((
+                        str(f.relative_path),
+                        "Test files - read when you need to understand expected behavior",
+                    ))
+
+        return first_read, skip_files[:10]

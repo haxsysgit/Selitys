@@ -213,3 +213,64 @@ class MarkdownGenerator:
                 f.write("\n")
             else:
                 f.write("No additional touchpoints identified beyond the main flow.\n\n")
+
+    def generate_first_read(self, output_path: Path) -> None:
+        """Generate selitys-first-read.md."""
+        with open(output_path, "w") as f:
+            self._write_header(f, "First Read Guide")
+
+            f.write("## Start Here\n\n")
+            f.write("Read these files first, in order. They will give you the fastest path ")
+            f.write("to understanding how this system works.\n\n")
+
+            if self.analysis.first_read_files:
+                for path, why, priority in self.analysis.first_read_files:
+                    f.write(f"### {priority}. `{path}`\n\n")
+                    f.write(f"{why}\n\n")
+            else:
+                f.write("No clear reading order could be determined. Start with any `main.py` ")
+                f.write("or entry point file you can find.\n\n")
+
+            f.write("## Core Logic\n\n")
+            f.write("After reading the files above, the core business logic likely lives in:\n\n")
+
+            service_dirs = [
+                sub for sub in self.analysis.subsystems
+                if "service" in sub.name.lower() or "core" in sub.name.lower()
+            ]
+            if service_dirs:
+                for sub in service_dirs[:3]:
+                    f.write(f"- `{sub.directory}/` - {sub.description}\n")
+                f.write("\n")
+            else:
+                f.write("The core logic location is not clearly separated. Look for files ")
+                f.write("with substantial business rules, likely in the main `app/` directory.\n\n")
+
+            f.write("## Can Skip Initially\n\n")
+            f.write("These files are safe to ignore on your first pass:\n\n")
+
+            if self.analysis.skip_files:
+                by_reason: dict[str, list[str]] = {}
+                for path, reason in self.analysis.skip_files:
+                    if reason not in by_reason:
+                        by_reason[reason] = []
+                    by_reason[reason].append(path)
+
+                for reason, paths in by_reason.items():
+                    f.write(f"**{reason}:**\n")
+                    for path in paths[:5]:
+                        f.write(f"- `{path}`\n")
+                    if len(paths) > 5:
+                        f.write(f"- ... and {len(paths) - 5} more\n")
+                    f.write("\n")
+            else:
+                f.write("No files identified as skippable. Everything appears relevant.\n\n")
+
+            f.write("## Reading Order Rationale\n\n")
+            f.write("This order is recommended because:\n\n")
+            f.write("1. **Entry point first** - Understand how the application boots\n")
+            f.write("2. **Configuration second** - Know what environment variables and settings exist\n")
+            f.write("3. **Data models third** - Understand the domain entities\n")
+            f.write("4. **API routes fourth** - See the public interface\n")
+            f.write("5. **Services last** - Dive into business logic once you have context\n\n")
+            f.write("This mirrors how a request flows through the system.\n")

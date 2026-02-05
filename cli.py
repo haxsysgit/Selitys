@@ -88,6 +88,10 @@ def explain(
     generator.generate_request_flow(request_flow_path)
     console.print(f"[green]Generated:[/green] {request_flow_path}")
 
+    first_read_path = output_dir / "selitys-first-read.md"
+    generator.generate_first_read(first_read_path)
+    console.print(f"[green]Generated:[/green] {first_read_path}")
+
     console.print()
     console.print("[bold green]Done.[/bold green]")
 
