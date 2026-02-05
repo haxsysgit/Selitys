@@ -53,6 +53,9 @@ class RequestFlowStep:
     location: str
     description: str
     file_path: str | None = None
+    code_insight: str = ""
+    what_happens: str = ""
+    key_functions: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -69,6 +72,9 @@ class AnalysisResult:
     """Complete analysis result for a repository."""
     repo_name: str
     likely_purpose: str
+    detailed_purpose: str = ""
+    domain_entities: list[str] = field(default_factory=list)
+    api_endpoints: list[tuple[str, str, str]] = field(default_factory=list)  # (method, path, description)
     frameworks: list[FrameworkInfo] = field(default_factory=list)
     entry_points: list[EntryPoint] = field(default_factory=list)
     config: ConfigInfo = field(default_factory=ConfigInfo)
@@ -104,6 +110,9 @@ class Analyzer:
         result.subsystems = self._detect_subsystems()
         result.risk_areas = self._detect_risk_areas()
         result.patterns_detected = self._detect_patterns()
+        result.domain_entities = self._extract_domain_entities()
+        result.api_endpoints = self._extract_api_endpoints()
+        result.detailed_purpose = self._build_detailed_purpose(result)
         result.request_flow = self._trace_request_flow()
         result.first_read_files, result.skip_files = self._recommend_reading_order()
 
@@ -431,7 +440,8 @@ class Analyzer:
         return patterns
 
     def _trace_request_flow(self) -> RequestFlow | None:
-        """Trace a typical request through the system."""
+        """Trace a typical request through the system with detailed analysis."""
+        import re
         steps = []
         touchpoints = []
         order = 1
@@ -442,15 +452,35 @@ class Analyzer:
             if f.relative_path.name == "main.py" and len(f.relative_path.parts) <= 2:
                 entry_file = f
                 break
+            elif "app" in str(f.relative_path).lower() and f.relative_path.name == "main.py":
+                entry_file = f
 
         if not entry_file:
             return None
 
+        # Analyze entry file content
+        entry_insight = ""
+        entry_what = ""
+        entry_funcs = []
+        if entry_file.content:
+            if "FastAPI(" in entry_file.content:
+                entry_insight = "Creates a FastAPI application instance"
+            if "include_router" in entry_file.content:
+                router_count = entry_file.content.count("include_router")
+                entry_insight += f", mounts {router_count} router(s)"
+            if "on_startup" in entry_file.content or "lifespan" in entry_file.content:
+                entry_what = "The app also defines startup/shutdown lifecycle hooks for initializing resources like database connections."
+            func_matches = re.findall(r'def\s+(\w+)\s*\(', entry_file.content)
+            entry_funcs = [f for f in func_matches if not f.startswith("_")][:3]
+
         steps.append(RequestFlowStep(
             order=order,
             location="Application Entry",
-            description="Request arrives at the ASGI server (likely uvicorn) which hands it to the FastAPI application.",
+            description="HTTP request arrives at the ASGI server (uvicorn/gunicorn) which delegates to the FastAPI application instance.",
             file_path=str(entry_file.relative_path),
+            code_insight=entry_insight,
+            what_happens=entry_what or "The FastAPI app receives the request and begins the routing process.",
+            key_functions=entry_funcs,
         ))
         order += 1
         touchpoints.append(f"Entry: {entry_file.relative_path}")
@@ -458,38 +488,82 @@ class Analyzer:
         # Check for middleware
         middleware_files = [f for f in self.structure.files if "middleware" in str(f.relative_path).lower()]
         if middleware_files:
+            mw_file = middleware_files[0]
+            mw_insight = ""
+            mw_what = ""
+            if mw_file.content:
+                if "CORSMiddleware" in mw_file.content:
+                    mw_insight = "CORS middleware configured"
+                if "authenticate" in mw_file.content.lower():
+                    mw_insight += ", authentication middleware present"
+                mw_what = "Before reaching the route handler, requests pass through middleware that can modify requests/responses, handle authentication, add headers, or reject invalid requests."
             steps.append(RequestFlowStep(
                 order=order,
-                location="Middleware",
-                description="Request passes through middleware for logging, authentication, or other cross-cutting concerns.",
-                file_path=str(middleware_files[0].relative_path),
+                location="Middleware Processing",
+                description="Request passes through middleware stack for cross-cutting concerns like CORS, authentication, logging, and error handling.",
+                file_path=str(mw_file.relative_path),
+                code_insight=mw_insight or "Middleware intercepts all requests",
+                what_happens=mw_what,
             ))
             order += 1
             touchpoints.append("Middleware processing")
 
-        # Check for router/routes
+        # Check for router/routes - pick a representative route file
         route_files = [f for f in self.structure.files
                       if "route" in str(f.relative_path).lower()
                       and f.extension == ".py"
                       and "__init__" not in f.relative_path.name]
         if route_files:
+            # Pick the most substantial route file
+            route_file = max(route_files, key=lambda x: x.line_count)
+            route_insight = ""
+            route_what = ""
+            route_funcs = []
+            if route_file.content:
+                # Count endpoints
+                endpoints = re.findall(r'@\w+\.(get|post|put|delete|patch)', route_file.content, re.IGNORECASE)
+                route_insight = f"Defines {len(endpoints)} endpoint(s)"
+                # Find function names
+                route_funcs = re.findall(r'async def\s+(\w+)\s*\(|def\s+(\w+)\s*\(', route_file.content)
+                route_funcs = [f[0] or f[1] for f in route_funcs if (f[0] or f[1]) and not (f[0] or f[1]).startswith("_")][:5]
+                route_what = "The router matches the request URL and HTTP method to a specific handler function. FastAPI automatically validates path parameters and query parameters against type hints."
+
             steps.append(RequestFlowStep(
                 order=order,
-                location="Router",
-                description="FastAPI router matches the request path to a route handler function.",
-                file_path=str(route_files[0].relative_path),
+                location="Route Matching and Handler",
+                description=f"FastAPI router matches the URL path to a handler function. Found {len(route_files)} route file(s) defining the API surface.",
+                file_path=str(route_file.relative_path),
+                code_insight=route_insight,
+                what_happens=route_what,
+                key_functions=route_funcs,
             ))
             order += 1
-            touchpoints.append(f"Routes: {len(route_files)} route files")
+            touchpoints.append(f"Routes: {len(route_files)} route files with {len(endpoints) if route_file.content else 'multiple'} endpoints")
 
         # Check for dependencies
         dep_files = [f for f in self.structure.files if "dependenc" in str(f.relative_path).lower()]
         if dep_files:
+            dep_file = dep_files[0]
+            dep_insight = ""
+            dep_what = ""
+            dep_funcs = []
+            if dep_file.content:
+                if "get_db" in dep_file.content or "get_session" in dep_file.content:
+                    dep_insight = "Provides database session injection"
+                if "get_current_user" in dep_file.content:
+                    dep_insight += ", user authentication dependency"
+                dep_funcs = re.findall(r'def\s+(\w+)\s*\(', dep_file.content)
+                dep_funcs = [f for f in dep_funcs if not f.startswith("_")][:5]
+                dep_what = "Before the handler executes, FastAPI resolves all dependencies declared in the function signature using Depends(). This typically includes database sessions, authenticated user objects, and other shared resources."
+
             steps.append(RequestFlowStep(
                 order=order,
                 location="Dependency Injection",
-                description="FastAPI resolves dependencies (database sessions, auth, etc.) before calling the handler.",
-                file_path=str(dep_files[0].relative_path),
+                description="FastAPI resolves dependencies declared with Depends() - database sessions, authentication, permissions, and other injected resources.",
+                file_path=str(dep_file.relative_path),
+                code_insight=dep_insight or "Dependencies resolved before handler execution",
+                what_happens=dep_what,
+                key_functions=dep_funcs,
             ))
             order += 1
             touchpoints.append("Dependency injection")
@@ -500,11 +574,28 @@ class Analyzer:
                         and f.extension == ".py"
                         and "__init__" not in f.relative_path.name]
         if service_files:
+            svc_file = max(service_files, key=lambda x: x.line_count)
+            svc_insight = ""
+            svc_what = ""
+            svc_funcs = []
+            if svc_file.content:
+                # Find class name
+                class_match = re.search(r'class\s+(\w+)', svc_file.content)
+                if class_match:
+                    svc_insight = f"Service class: {class_match.group(1)}"
+                # Find methods
+                svc_funcs = re.findall(r'(?:async )?def\s+(\w+)\s*\(self', svc_file.content)
+                svc_funcs = [f for f in svc_funcs if not f.startswith("_")][:5]
+                svc_what = "The route handler delegates business logic to service classes. Services encapsulate domain logic, coordinate between multiple data sources, handle transactions, and keep route handlers thin."
+
             steps.append(RequestFlowStep(
                 order=order,
-                location="Service Layer",
-                description="Business logic executes in a service class, which may call other services or repositories.",
-                file_path=str(service_files[0].relative_path),
+                location="Service Layer (Business Logic)",
+                description=f"Business logic executes in service classes. Found {len(service_files)} service file(s) containing domain operations.",
+                file_path=str(svc_file.relative_path),
+                code_insight=svc_insight,
+                what_happens=svc_what,
+                key_functions=svc_funcs,
             ))
             order += 1
             touchpoints.append(f"Services: {len(service_files)} service files")
@@ -515,23 +606,48 @@ class Analyzer:
                       and f.extension == ".py"
                       and "__init__" not in f.relative_path.name]
         if model_files:
+            model_file = max(model_files, key=lambda x: x.line_count)
+            model_insight = ""
+            model_what = ""
+            if model_file.content:
+                tables = re.findall(r'__tablename__\s*=\s*["\'](\w+)["\']', model_file.content)
+                if tables:
+                    model_insight = f"Tables: {', '.join(tables[:3])}"
+                model_what = "Services interact with the database through SQLAlchemy ORM models. The ORM translates Python objects to SQL queries, handles relationships between entities, and manages the unit of work pattern for transactions."
+
             steps.append(RequestFlowStep(
                 order=order,
-                location="Database Interaction",
-                description="Service interacts with the database through SQLAlchemy models.",
-                file_path=str(model_files[0].relative_path),
+                location="Database Layer (ORM)",
+                description=f"Data persistence via SQLAlchemy models. Found {len(model_files)} model file(s) defining the database schema.",
+                file_path=str(model_file.relative_path),
+                code_insight=model_insight or "SQLAlchemy models define database tables",
+                what_happens=model_what,
             ))
             order += 1
-            touchpoints.append("Database via SQLAlchemy")
+            touchpoints.append("Database via SQLAlchemy ORM")
 
-        # Response
-        schema_files = [f for f in self.structure.files if "schema" in str(f.relative_path).lower()]
+        # Response serialization
+        schema_files = [f for f in self.structure.files
+                       if "schema" in str(f.relative_path).lower()
+                       and f.extension == ".py"
+                       and "__init__" not in f.relative_path.name]
         if schema_files:
+            schema_file = max(schema_files, key=lambda x: x.line_count)
+            schema_insight = ""
+            schema_what = ""
+            if schema_file.content:
+                schemas = re.findall(r'class\s+(\w+)\s*\([^)]*BaseModel[^)]*\)', schema_file.content)
+                if schemas:
+                    schema_insight = f"Schemas: {', '.join(schemas[:4])}"
+                schema_what = "Before returning to the client, response data is validated and serialized through Pydantic schemas. This ensures type safety, filters out internal fields, and converts ORM objects to JSON-serializable dictionaries."
+
             steps.append(RequestFlowStep(
                 order=order,
                 location="Response Serialization",
-                description="Response data is validated and serialized through Pydantic schemas before returning to the client.",
-                file_path=str(schema_files[0].relative_path),
+                description="Response data validated and serialized through Pydantic schemas before returning JSON to client.",
+                file_path=str(schema_file.relative_path),
+                code_insight=schema_insight or "Pydantic schemas validate response shape",
+                what_happens=schema_what,
             ))
             touchpoints.append("Schema validation on response")
 
@@ -539,8 +655,8 @@ class Analyzer:
             return None
 
         return RequestFlow(
-            name="Typical API Request",
-            description="A standard request through the API layer, from entry to response.",
+            name="Typical API Request Flow",
+            description="A detailed walkthrough of how an HTTP request travels through the application layers, from entry to response.",
             steps=steps,
             touchpoints=touchpoints,
         )
@@ -647,3 +763,93 @@ class Analyzer:
                     ))
 
         return first_read, skip_files[:10]
+
+    def _extract_domain_entities(self) -> list[str]:
+        """Extract domain entities from model files."""
+        import re
+        entities = []
+
+        for f in self.structure.files:
+            if f.content is None:
+                continue
+            if "model" in str(f.relative_path).lower() and f.extension == ".py":
+                # Look for SQLAlchemy model classes
+                class_matches = re.findall(r'class\s+(\w+)\s*\([^)]*Base[^)]*\)', f.content)
+                for match in class_matches:
+                    if match not in entities and not match.startswith("_"):
+                        entities.append(match)
+
+                # Look for table names
+                table_matches = re.findall(r'__tablename__\s*=\s*["\'](\w+)["\']', f.content)
+                for match in table_matches:
+                    entity_name = match.replace("_", " ").title().replace(" ", "")
+                    if entity_name not in entities:
+                        entities.append(f"{entity_name} (table: {match})")
+
+        return entities[:15]
+
+    def _extract_api_endpoints(self) -> list[tuple[str, str, str]]:
+        """Extract API endpoints from route files."""
+        import re
+        endpoints = []
+
+        for f in self.structure.files:
+            if f.content is None:
+                continue
+            if "route" in str(f.relative_path).lower() and f.extension == ".py":
+                # Match FastAPI decorators like @router.get("/path")
+                patterns = [
+                    r'@\w+\.(get|post|put|delete|patch)\s*\(\s*["\']([^"\']+)["\']',
+                    r'@app\.(get|post|put|delete|patch)\s*\(\s*["\']([^"\']+)["\']',
+                ]
+                for pattern in patterns:
+                    matches = re.findall(pattern, f.content, re.IGNORECASE)
+                    for method, path in matches:
+                        # Try to find the function name/docstring for description
+                        desc = f"Endpoint in {f.relative_path.name}"
+                        endpoints.append((method.upper(), path, desc))
+
+        return endpoints[:20]
+
+    def _build_detailed_purpose(self, result: AnalysisResult) -> str:
+        """Build a detailed purpose description."""
+        lines = []
+
+        # Analyze what kind of system this is
+        if result.domain_entities:
+            entity_names = [e.split(" (")[0] for e in result.domain_entities[:5]]
+            lines.append(f"This system manages {', '.join(entity_names).lower()} data.")
+
+        # Describe API surface
+        if result.api_endpoints:
+            methods = {}
+            for method, path, _ in result.api_endpoints:
+                methods[method] = methods.get(method, 0) + 1
+            method_summary = ", ".join(f"{count} {m}" for m, count in sorted(methods.items()))
+            lines.append(f"It exposes a REST API with {len(result.api_endpoints)} endpoints ({method_summary}).")
+
+        # Describe authentication if present
+        auth_files = [f for f in self.structure.files if "auth" in str(f.relative_path).lower()]
+        if auth_files:
+            for f in auth_files:
+                if f.content and "jwt" in f.content.lower():
+                    lines.append("Authentication is handled via JWT tokens.")
+                    break
+                elif f.content and "oauth" in f.content.lower():
+                    lines.append("Authentication uses OAuth.")
+                    break
+            else:
+                lines.append("The system includes authentication mechanisms.")
+
+        # Describe data persistence
+        if any(fw.name == "SQLAlchemy" for fw in result.frameworks):
+            lines.append("Data is persisted using SQLAlchemy ORM with a relational database.")
+        if any(fw.name == "Alembic" for fw in result.frameworks):
+            lines.append("Database schema changes are managed through Alembic migrations.")
+
+        # Check for background tasks
+        if any("celery" in str(f.relative_path).lower() or "task" in str(f.relative_path).lower()
+               for f in self.structure.files):
+            lines.append("Background task processing appears to be supported.")
+
+        return " ".join(lines) if lines else "Unable to determine detailed purpose from code analysis."

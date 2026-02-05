@@ -37,6 +37,28 @@ class MarkdownGenerator:
         f.write("## System Purpose\n\n")
         f.write(f"{self.analysis.likely_purpose}\n\n")
 
+        if self.analysis.detailed_purpose:
+            f.write("### What This System Does\n\n")
+            f.write(f"{self.analysis.detailed_purpose}\n\n")
+
+        if self.analysis.domain_entities:
+            f.write("### Domain Entities\n\n")
+            f.write("The system manages these core data types:\n\n")
+            for entity in self.analysis.domain_entities[:10]:
+                f.write(f"- **{entity}**\n")
+            f.write("\n")
+
+        if self.analysis.api_endpoints:
+            f.write("### API Surface\n\n")
+            f.write(f"The API exposes {len(self.analysis.api_endpoints)} endpoint(s):\n\n")
+            f.write("| Method | Path | Source |\n")
+            f.write("|--------|------|--------|\n")
+            for method, path, desc in self.analysis.api_endpoints[:15]:
+                f.write(f"| `{method}` | `{path}` | {desc} |\n")
+            if len(self.analysis.api_endpoints) > 15:
+                f.write(f"\n*... and {len(self.analysis.api_endpoints) - 15} more endpoints*\n")
+            f.write("\n")
+
     def _write_tech_stack_section(self, f: TextIO) -> None:
         """Write Technology Stack section."""
         f.write("## Technology Stack\n\n")
@@ -203,8 +225,22 @@ class MarkdownGenerator:
             for step in flow.steps:
                 f.write(f"### {step.order}. {step.location}\n\n")
                 f.write(f"{step.description}\n\n")
+
+                if step.code_insight:
+                    f.write(f"**Code insight:** {step.code_insight}\n\n")
+
+                if step.what_happens:
+                    f.write(f"**What happens here:** {step.what_happens}\n\n")
+
+                if step.key_functions:
+                    f.write("**Key functions:** ")
+                    f.write(", ".join(f"`{fn}()`" for fn in step.key_functions))
+                    f.write("\n\n")
+
                 if step.file_path:
-                    f.write(f"*See:* `{step.file_path}`\n\n")
+                    f.write(f"**File:** `{step.file_path}`\n\n")
+
+                f.write("---\n\n")
 
             f.write("## Key Touchpoints\n\n")
             if flow.touchpoints:
