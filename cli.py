@@ -6,6 +6,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from analyzer import Analyzer
+from generator import MarkdownGenerator
 from scanner import RepoScanner
 
 __version__ = "0.1.0"
@@ -64,6 +66,19 @@ def explain(
         console.print(f"  [blue]{d.relative_path}/[/blue]")
     for f in sorted(root_files, key=lambda x: x.relative_path):
         console.print(f"  {f.relative_path}")
+
+    # Run analysis
+    with console.status("[bold green]Analyzing codebase..."):
+        analyzer = Analyzer(structure)
+        analysis = analyzer.analyze()
+
+    # Generate markdown
+    output_dir.mkdir(parents=True, exist_ok=True)
+    generator = MarkdownGenerator(structure, analysis)
+
+    overview_path = output_dir / "selitys-overview.md"
+    generator.generate_overview(overview_path)
+    console.print(f"[green]Generated:[/green] {overview_path}")
 
     console.print()
     console.print("[bold green]Done.[/bold green]")
