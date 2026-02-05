@@ -78,17 +78,6 @@ selitys outputs structured explanations, not code.
 
 ---
 
-## Output Style
-
-- Clear headings
-- Concise but insightful
-- Slightly opinionated where justified
-- Senior engineer tone
-- No fluff
-- No em dashes
-
----
-
 ## Incremental Build Philosophy
 
 selitys must be built in small, stable steps.
@@ -150,8 +139,3 @@ The project is successful if:
 These are explicitly out of scope for v1.
 
 ---
-
-## Project Status
-
-This project is intentionally built incrementally using AI-assisted development.
-The human role is reviewer and decision-maker, not coder.
