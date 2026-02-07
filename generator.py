@@ -177,8 +177,50 @@ class MarkdownGenerator:
 
         if self.analysis.subsystems:
             f.write("Based on the detected subsystems, the likely dependency flow is:\n\n")
-            f.write("```\n")
+
+            # Generate Mermaid diagram
+            f.write("```mermaid\ngraph TD\n")
+
             subsystem_names = [s.name for s in self.analysis.subsystems]
+
+            # Define nodes with labels
+            node_ids = {}
+            for i, sub in enumerate(self.analysis.subsystems):
+                node_id = f"S{i}"
+                node_ids[sub.name] = node_id
+                f.write(f"    {node_id}[{sub.name}]\n")
+
+            # Define relationships based on common patterns
+            if "API Layer" in subsystem_names or "Routing" in subsystem_names:
+                api_node = node_ids.get("API Layer") or node_ids.get("Routing")
+                if api_node:
+                    if "Services" in subsystem_names:
+                        f.write(f"    {api_node} --> {node_ids['Services']}\n")
+                    if "Core" in subsystem_names:
+                        f.write(f"    {api_node} --> {node_ids['Core']}\n")
+
+            if "Services" in subsystem_names:
+                svc_node = node_ids["Services"]
+                if "Data Models" in subsystem_names:
+                    f.write(f"    {svc_node} --> {node_ids['Data Models']}\n")
+                if "Database" in subsystem_names:
+                    f.write(f"    {svc_node} --> {node_ids['Database']}\n")
+                if "Schemas" in subsystem_names:
+                    f.write(f"    {svc_node} --> {node_ids['Schemas']}\n")
+
+            if "Data Models" in subsystem_names and "Database" in subsystem_names:
+                f.write(f"    {node_ids['Data Models']} --> {node_ids['Database']}\n")
+
+            if "Core" in subsystem_names:
+                core_node = node_ids["Core"]
+                if "Services" in subsystem_names:
+                    f.write(f"    {core_node} --> {node_ids['Services']}\n")
+
+            f.write("```\n\n")
+
+            # Also provide text description
+            f.write("**Simplified flow:**\n")
+            f.write("```\n")
             if "Routing" in subsystem_names or "API Layer" in subsystem_names:
                 f.write("API/Routes -> Services -> Models -> Database\n")
             else:
