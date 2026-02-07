@@ -1,7 +1,9 @@
 """Markdown generator for selitys output files."""
 
+import json
+from dataclasses import asdict
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 
 from analyzer import AnalysisResult
 from scanner import RepoStructure
@@ -394,3 +396,104 @@ class MarkdownGenerator:
                         f.write(f"- `{var.name}`\n")
                     f.write("\n")
                     f.write("Ensure these are properly secured and never exposed in logs or error messages.\n")
+
+    def generate_json(self, output_path: Path) -> None:
+        """Generate selitys-analysis.json with machine-readable analysis."""
+        data: dict[str, Any] = {
+            "version": "1.4.0",
+            "repository": self.analysis.repo_name,
+            "summary": {
+                "purpose": self.analysis.likely_purpose,
+                "detailed_purpose": self.analysis.detailed_purpose,
+                "total_files": self.structure.total_files,
+                "total_lines": self.structure.total_lines,
+                "languages": dict(self.structure.languages_detected),
+            },
+            "frameworks": [
+                {"name": fw.name, "category": fw.category, "confidence": fw.confidence}
+                for fw in self.analysis.frameworks
+            ],
+            "entry_points": [
+                {"path": ep.path, "description": ep.description}
+                for ep in self.analysis.entry_points
+            ],
+            "domain_entities": self.analysis.domain_entities,
+            "api_endpoints": [
+                {"method": method, "path": path, "source": desc}
+                for method, path, desc in self.analysis.api_endpoints
+            ],
+            "subsystems": [
+                {
+                    "name": sub.name,
+                    "directory": sub.directory,
+                    "description": sub.description,
+                    "key_files": sub.key_files,
+                }
+                for sub in self.analysis.subsystems
+            ],
+            "patterns": self.analysis.patterns_detected,
+            "risk_areas": [
+                {
+                    "location": risk.location,
+                    "type": risk.risk_type,
+                    "description": risk.description,
+                    "severity": risk.severity,
+                }
+                for risk in self.analysis.risk_areas
+            ],
+            "configuration": {
+                "files": [
+                    {
+                        "path": cf.path,
+                        "type": cf.file_type,
+                        "description": cf.description,
+                        "settings_count": cf.settings_count,
+                    }
+                    for cf in self.analysis.config.config_file_details
+                ],
+                "environment_variables": [
+                    {
+                        "name": var.name,
+                        "source": var.source_file,
+                        "has_default": var.has_default,
+                        "default": var.default_value if var.has_default else None,
+                    }
+                    for var in self.analysis.config.env_var_details
+                ],
+            },
+            "request_flow": None,
+            "first_read": {
+                "recommended": [
+                    {"path": path, "reason": reason, "priority": priority}
+                    for path, reason, priority in self.analysis.first_read_files
+                ],
+                "skip": [
+                    {"path": path, "reason": reason}
+                    for path, reason in self.analysis.skip_files
+                ],
+            },
+        }
+
+        # Add request flow if available
+        if self.analysis.request_flow:
+            flow = self.analysis.request_flow
+            data["request_flow"] = {
+                "name": flow.name,
+                "description": flow.description,
+                "steps": [
+                    {
+                        "order": step.order,
+                        "location": step.location,
+                        "description": step.description,
+                        "file": step.file_path,
+                        "code_insight": step.code_insight,
+                        "what_happens": step.what_happens,
+                        "key_functions": step.key_functions,
+                    }
+                    for step in flow.steps
+                ],
+                "touchpoints": flow.touchpoints,
+            }
+
+        with open(output_path, "w") as f:
+            json.dump(data, f, indent=2)

@@ -10,7 +10,7 @@ from analyzer import Analyzer
 from generator import MarkdownGenerator
 from scanner import RepoScanner
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 app = typer.Typer(
     name="selitys",
@@ -35,6 +35,12 @@ def explain(
         "--output",
         "-o",
         help="Output directory for generated files (default: current directory)",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output analysis as JSON file in addition to markdown",
     ),
 ) -> None:
     """Analyze a repository and generate explanation documents."""
@@ -95,6 +101,11 @@ def explain(
     config_path = output_dir / "selitys-config.md"
     generator.generate_config(config_path)
     console.print(f"[green]Generated:[/green] {config_path}")
+
+    if json_output:
+        json_path = output_dir / "selitys-analysis.json"
+        generator.generate_json(json_path)
+        console.print(f"[green]Generated:[/green] {json_path}")
 
     console.print()
     console.print("[bold green]Done.[/bold green]")
