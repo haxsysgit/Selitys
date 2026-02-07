@@ -14,10 +14,31 @@ class EntryPoint:
 
 
 @dataclass
+class EnvVarInfo:
+    """Detailed environment variable information."""
+    name: str
+    source_file: str
+    has_default: bool = False
+    default_value: str = ""
+    description: str = ""
+
+
+@dataclass
+class ConfigFileInfo:
+    """Detailed configuration file information."""
+    path: str
+    file_type: str
+    description: str
+    settings_count: int = 0
+
+
+@dataclass
 class ConfigInfo:
     """Configuration information."""
     config_files: list[str] = field(default_factory=list)
     env_vars: list[str] = field(default_factory=list)
+    env_var_details: list[EnvVarInfo] = field(default_factory=list)
+    config_file_details: list[ConfigFileInfo] = field(default_factory=list)
 
 
 @dataclass
@@ -208,28 +229,85 @@ class Analyzer:
 
     def _analyze_config(self) -> ConfigInfo:
         """Analyze configuration files and environment variables."""
+        import re
         config = ConfigInfo()
 
-        config_patterns = [
-            "config.py", "settings.py", "config.yaml", "config.yml",
-            "config.json", ".env", ".env.example", "pyproject.toml",
-        ]
+        config_patterns = {
+            "config.py": ("Python", "Application configuration module"),
+            "settings.py": ("Python", "Django-style settings module"),
+            "config.yaml": ("YAML", "YAML configuration file"),
+            "config.yml": ("YAML", "YAML configuration file"),
+            "config.json": ("JSON", "JSON configuration file"),
+            ".env": ("Environment", "Environment variables file"),
+            ".env.example": ("Environment", "Example environment variables template"),
+            ".env.local": ("Environment", "Local environment overrides"),
+            "pyproject.toml": ("TOML", "Python project configuration"),
+            "alembic.ini": ("INI", "Alembic database migration configuration"),
+            "pytest.ini": ("INI", "Pytest configuration"),
+            "setup.cfg": ("INI", "Python package configuration"),
+        }
 
         for f in self.structure.files:
-            if f.relative_path.name in config_patterns:
+            fname = f.relative_path.name
+            if fname in config_patterns:
                 config.config_files.append(str(f.relative_path))
+                ftype, desc = config_patterns[fname]
+                settings_count = 0
+                if f.content:
+                    if f.extension == ".py":
+                        settings_count = len(re.findall(r'^\s*[A-Z_]+\s*=', f.content, re.MULTILINE))
+                    elif f.extension in [".env", ""]:
+                        settings_count = len(re.findall(r'^[A-Z_]+=', f.content, re.MULTILINE))
+                config.config_file_details.append(ConfigFileInfo(
+                    path=str(f.relative_path),
+                    file_type=ftype,
+                    description=desc,
+                    settings_count=settings_count,
+                ))
 
             if f.content and f.extension == ".py":
-                import re
-                env_matches = re.findall(r'os\.(?:environ|getenv)\s*[(\[]\s*["\']([^"\']+)["\']', f.content)
-                for var in env_matches:
+                # Find env vars with getenv (with potential default)
+                getenv_matches = re.findall(
+                    r'os\.getenv\s*\(\s*["\']([^"\']+)["\'](?:\s*,\s*([^)]+))?\)',
+                    f.content
+                )
+                for var, default in getenv_matches:
                     if var not in config.env_vars:
                         config.env_vars.append(var)
+                        has_default = bool(default and default.strip())
+                        config.env_var_details.append(EnvVarInfo(
+                            name=var,
+                            source_file=str(f.relative_path),
+                            has_default=has_default,
+                            default_value=default.strip() if has_default else "",
+                        ))
 
-                settings_matches = re.findall(r'config\(["\']([^"\']+)["\']', f.content, re.IGNORECASE)
-                for var in settings_matches:
+                # Find env vars with environ[]
+                environ_matches = re.findall(r'os\.environ\s*\[\s*["\']([^"\']+)["\']\s*\]', f.content)
+                for var in environ_matches:
                     if var not in config.env_vars:
                         config.env_vars.append(var)
+                        config.env_var_details.append(EnvVarInfo(
+                            name=var,
+                            source_file=str(f.relative_path),
+                            has_default=False,
+                            description="Required - no default provided",
+                        ))
+
+                # Find pydantic settings fields
+                settings_matches = re.findall(
+                    r'(\w+)\s*:\s*\w+\s*=\s*Field\s*\([^)]*env\s*=\s*["\']([^"\']+)["\']',
+                    f.content
+                )
+                for field_name, var in settings_matches:
+                    if var not in config.env_vars:
+                        config.env_vars.append(var)
+                        config.env_var_details.append(EnvVarInfo(
+                            name=var,
+                            source_file=str(f.relative_path),
+                            has_default=True,
+                            description=f"Pydantic settings field: {field_name}",
+                        ))
 
         return config
 

@@ -10,7 +10,7 @@ from analyzer import Analyzer
 from generator import MarkdownGenerator
 from scanner import RepoScanner
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 app = typer.Typer(
     name="selitys",
@@ -91,6 +91,10 @@ def explain(
     first_read_path = output_dir / "selitys-first-read.md"
     generator.generate_first_read(first_read_path)
     console.print(f"[green]Generated:[/green] {first_read_path}")
+
+    config_path = output_dir / "selitys-config.md"
+    generator.generate_config(config_path)
+    console.print(f"[green]Generated:[/green] {config_path}")
 
     console.print()
     console.print("[bold green]Done.[/bold green]")

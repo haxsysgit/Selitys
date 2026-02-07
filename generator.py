@@ -310,3 +310,87 @@ class MarkdownGenerator:
             f.write("4. **API routes fourth** - See the public interface\n")
             f.write("5. **Services last** - Dive into business logic once you have context\n\n")
             f.write("This mirrors how a request flows through the system.\n")
+
+    def generate_config(self, output_path: Path) -> None:
+        """Generate selitys-config.md."""
+        with open(output_path, "w") as f:
+            self._write_header(f, "Configuration Guide")
+
+            f.write("## Overview\n\n")
+            f.write("This document explains all configuration files and environment variables ")
+            f.write("used by this application.\n\n")
+
+            # Config files section
+            f.write("## Configuration Files\n\n")
+            if self.analysis.config.config_file_details:
+                f.write("| File | Type | Description | Settings |\n")
+                f.write("|------|------|-------------|----------|\n")
+                for cf in self.analysis.config.config_file_details:
+                    settings_str = str(cf.settings_count) if cf.settings_count > 0 else "-"
+                    f.write(f"| `{cf.path}` | {cf.file_type} | {cf.description} | {settings_str} |\n")
+                f.write("\n")
+            else:
+                f.write("No configuration files detected.\n\n")
+
+            # Environment variables section
+            f.write("## Environment Variables\n\n")
+            if self.analysis.config.env_var_details:
+                # Group by required vs optional
+                required = [v for v in self.analysis.config.env_var_details if not v.has_default]
+                optional = [v for v in self.analysis.config.env_var_details if v.has_default]
+
+                if required:
+                    f.write("### Required Variables\n\n")
+                    f.write("These variables must be set for the application to run:\n\n")
+                    f.write("| Variable | Source | Notes |\n")
+                    f.write("|----------|--------|-------|\n")
+                    for var in required:
+                        notes = var.description or "No default provided"
+                        f.write(f"| `{var.name}` | `{var.source_file}` | {notes} |\n")
+                    f.write("\n")
+
+                if optional:
+                    f.write("### Optional Variables\n\n")
+                    f.write("These variables have defaults and are optional:\n\n")
+                    f.write("| Variable | Default | Source |\n")
+                    f.write("|----------|---------|--------|\n")
+                    for var in optional:
+                        default = var.default_value if var.default_value else "(has default)"
+                        # Truncate long defaults
+                        if len(default) > 30:
+                            default = default[:27] + "..."
+                        f.write(f"| `{var.name}` | `{default}` | `{var.source_file}` |\n")
+                    f.write("\n")
+
+            elif self.analysis.config.env_vars:
+                f.write("The following environment variables are used:\n\n")
+                for var in self.analysis.config.env_vars:
+                    f.write(f"- `{var}`\n")
+                f.write("\n")
+            else:
+                f.write("No environment variables detected.\n\n")
+
+            # Setup instructions
+            f.write("## Local Setup\n\n")
+            f.write("To configure this application locally:\n\n")
+            f.write("1. Copy the example environment file (if available):\n")
+            f.write("   ```bash\n")
+            f.write("   cp .env.example .env\n")
+            f.write("   ```\n\n")
+            f.write("2. Edit `.env` and fill in the required values\n\n")
+            f.write("3. For sensitive values (API keys, secrets), ensure they are:\n")
+            f.write("   - Never committed to version control\n")
+            f.write("   - Rotated regularly in production\n")
+            f.write("   - Stored securely (e.g., secrets manager)\n\n")
+
+            # Warnings
+            if self.analysis.config.env_var_details:
+                secret_vars = [v for v in self.analysis.config.env_var_details
+                              if any(s in v.name.lower() for s in ["secret", "key", "password", "token"])]
+                if secret_vars:
+                    f.write("## Security Notes\n\n")
+                    f.write("The following variables appear to contain sensitive data:\n\n")
+                    for var in secret_vars:
+                        f.write(f"- `{var.name}`\n")
+                    f.write("\n")
+                    f.write("Ensure these are properly secured and never exposed in logs or error messages.\n")
