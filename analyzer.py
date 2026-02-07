@@ -351,11 +351,15 @@ class Analyzer:
 
     def _detect_risk_areas(self) -> list[RiskArea]:
         """Detect risky or fragile areas in the codebase."""
+        import re
         risks = []
 
         for f in self.structure.files:
             if f.content is None:
                 continue
+
+            # Skip non-code files for most checks
+            is_code = f.extension in [".py", ".js", ".ts", ".java", ".go", ".rb"]
 
             # Large files
             if f.line_count > 500:
@@ -366,45 +370,133 @@ class Analyzer:
                     severity="low",
                 ))
 
-            # Raw SQL
-            if "execute(" in f.content and ("SELECT" in f.content or "INSERT" in f.content):
-                risks.append(RiskArea(
-                    location=str(f.relative_path),
-                    risk_type="Raw SQL",
-                    description="Contains raw SQL execution, potential SQL injection risk",
-                    severity="medium",
-                ))
+            if not is_code:
+                continue
 
-            # Hardcoded secrets patterns
-            import re
+            # Raw SQL - potential injection
+            if "execute(" in f.content and ("SELECT" in f.content or "INSERT" in f.content or "UPDATE" in f.content or "DELETE" in f.content):
+                # Check if it uses parameterized queries
+                if not re.search(r'execute\s*\([^,]+,\s*[\[\(]', f.content):
+                    risks.append(RiskArea(
+                        location=str(f.relative_path),
+                        risk_type="Possible SQL injection",
+                        description="Raw SQL execution without apparent parameterization detected",
+                        severity="high",
+                    ))
+
+            # Hardcoded secrets patterns (skip if looks like env var reference)
             secret_patterns = [
-                r'password\s*=\s*["\'][^"\']+["\']',
-                r'secret\s*=\s*["\'][^"\']+["\']',
-                r'api_key\s*=\s*["\'][^"\']+["\']',
+                (r'(?<!os\.environ)(?<!getenv)password\s*=\s*["\'][^"\']{4,}["\']', "hardcoded password"),
+                (r'(?<!os\.environ)(?<!getenv)secret_key\s*=\s*["\'][^"\']{8,}["\']', "hardcoded secret"),
+                (r'(?<!os\.environ)(?<!getenv)api_key\s*=\s*["\'][^"\']{8,}["\']', "hardcoded API key"),
+                (r'(?<!os\.environ)(?<!getenv)auth_token\s*=\s*["\'][^"\']{20,}["\']', "hardcoded token"),
+                (r'private_key\s*=\s*["\'][^"\']{20,}["\']', "hardcoded private key"),
+                (r'AWS_SECRET_ACCESS_KEY\s*=\s*["\'][^"\']+["\']', "AWS secret key"),
+                (r'-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----', "embedded private key"),
+                (r'ghp_[a-zA-Z0-9]{36}', "GitHub personal access token"),
+                (r'sk-[a-zA-Z0-9]{48}', "OpenAI API key pattern"),
             ]
-            for pattern in secret_patterns:
+            for pattern, desc in secret_patterns:
+                if re.search(pattern, f.content, re.IGNORECASE):
+                    # Skip if in test file or example
+                    if "test" in str(f.relative_path).lower() or "example" in str(f.relative_path).lower():
+                        risks.append(RiskArea(
+                            location=str(f.relative_path),
+                            risk_type=f"Possible {desc}",
+                            description=f"Found {desc} pattern in test/example file - verify it is not a real credential",
+                            severity="medium",
+                        ))
+                    else:
+                        risks.append(RiskArea(
+                            location=str(f.relative_path),
+                            risk_type=f"Possible {desc}",
+                            description=f"Detected pattern matching {desc} - review for exposed credentials",
+                            severity="high",
+                        ))
+                    break
+
+            # Insecure configurations
+            insecure_patterns = [
+                (r'DEBUG\s*=\s*True', "Debug mode enabled", "medium"),
+                (r'verify\s*=\s*False', "SSL verification disabled", "high"),
+                (r'allow_origins\s*=\s*\["\*"\]', "Permissive CORS configuration", "medium"),
+                (r'(?<!["\'])eval\s*\([^)]+\)', "Use of eval()", "high"),
+                (r'(?<!["\'])exec\s*\([^)]+\)', "Use of exec()", "high"),
+                (r'subprocess\.(run|call|Popen).*shell\s*=\s*True', "Shell injection risk", "high"),
+                (r'pickle\.loads?\s*\(', "Pickle deserialization (potential RCE)", "medium"),
+                (r'yaml\.load\s*\([^)]*Loader\s*=\s*None', "Unsafe YAML load (use safe_load)", "medium"),
+                (r'hashlib\.md5\(|hashlib\.sha1\(', "Weak hash algorithm", "low"),
+            ]
+            for pattern, desc, severity in insecure_patterns:
                 if re.search(pattern, f.content, re.IGNORECASE):
                     risks.append(RiskArea(
                         location=str(f.relative_path),
-                        risk_type="Possible hardcoded secret",
-                        description="Appears to contain hardcoded credentials or secrets",
-                        severity="high",
+                        risk_type=desc,
+                        description=f"Detected {desc} - review for security implications",
+                        severity=severity,
                     ))
-                    break
+
+            # Missing input validation hints
+            if f.extension == ".py" and "route" in str(f.relative_path).lower():
+                # Check if route handlers have type hints (basic validation)
+                func_defs = re.findall(r'(async )?def\s+\w+\s*\([^)]*\)', f.content)
+                untyped = [fd for fd in func_defs if ':' not in fd and 'self' not in fd]
+                if len(untyped) > 3:
+                    risks.append(RiskArea(
+                        location=str(f.relative_path),
+                        risk_type="Missing type hints in routes",
+                        description=f"Found {len(untyped)} route handlers without type hints - reduces validation",
+                        severity="low",
+                    ))
+
+            # TODO/FIXME/HACK comments
+            todo_count = len(re.findall(r'#\s*(TODO|FIXME|HACK|XXX|BUG)', f.content, re.IGNORECASE))
+            if todo_count > 5:
+                risks.append(RiskArea(
+                    location=str(f.relative_path),
+                    risk_type="Technical debt markers",
+                    description=f"Contains {todo_count} TODO/FIXME/HACK comments indicating unfinished work",
+                    severity="low",
+                ))
 
         # Check test coverage
-        test_files = [f for f in self.structure.files if "test" in str(f.relative_path).lower()]
+        test_files = [f for f in self.structure.files if "test" in str(f.relative_path).lower() and f.extension == ".py"]
         code_files = [f for f in self.structure.files if f.extension == ".py" and "test" not in str(f.relative_path).lower()]
 
-        if len(test_files) < len(code_files) * 0.3:
+        if code_files and len(test_files) < len(code_files) * 0.2:
             risks.append(RiskArea(
                 location="tests/",
                 risk_type="Limited test coverage",
-                description=f"Only {len(test_files)} test files for {len(code_files)} code files",
+                description=f"Only {len(test_files)} test files for {len(code_files)} code files (ratio: {len(test_files)/len(code_files)*100:.0f}%)",
                 severity="medium",
             ))
 
-        return risks[:20]
+        # Check for missing security headers in FastAPI/Flask
+        main_files = [f for f in self.structure.files if f.relative_path.name == "main.py" and f.content]
+        for mf in main_files:
+            if "FastAPI" in mf.content or "Flask" in mf.content:
+                if "SecurityMiddleware" not in mf.content and "Strict-Transport-Security" not in mf.content:
+                    risks.append(RiskArea(
+                        location=str(mf.relative_path),
+                        risk_type="Missing security headers",
+                        description="No security middleware detected - consider adding HSTS, CSP headers",
+                        severity="low",
+                    ))
+
+        # Deduplicate and limit
+        seen = set()
+        unique_risks = []
+        for r in risks:
+            key = (r.location, r.risk_type)
+            if key not in seen:
+                seen.add(key)
+                unique_risks.append(r)
+
+        # Sort by severity
+        severity_order = {"high": 0, "medium": 1, "low": 2}
+        unique_risks.sort(key=lambda r: severity_order.get(r.severity, 3))
+
+        return unique_risks[:30]
 
     def _detect_patterns(self) -> list[str]:
         """Detect architectural patterns in the codebase."""
