@@ -10,7 +10,7 @@ from analyzer import Analyzer
 from generator import MarkdownGenerator
 from scanner import RepoScanner
 
-__version__ = "1.5.0"
+__version__ = "2.0.0"
 
 app = typer.Typer(
     name="selitys",

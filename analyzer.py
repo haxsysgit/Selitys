@@ -143,6 +143,11 @@ class Analyzer:
         """Infer the likely purpose of this codebase."""
         indicators = []
 
+        # Detect primary language
+        langs = self.structure.languages_detected
+        primary_lang = list(langs.keys())[0] if langs else "Unknown"
+        is_js_ts = primary_lang in ["JavaScript", "TypeScript", "JavaScript (React)", "TypeScript (React)"]
+
         has_api = any("route" in str(f.relative_path).lower() or "api" in str(f.relative_path).lower()
                       for f in self.structure.files)
         has_models = any("model" in str(f.relative_path).lower() for f in self.structure.files)
@@ -150,15 +155,27 @@ class Analyzer:
                      for f in self.structure.files)
         has_auth = any("auth" in str(f.relative_path).lower() for f in self.structure.files)
 
-        if has_api:
+        # JS/TS specific indicators
+        has_components = any("component" in str(f.relative_path).lower() for f in self.structure.files)
+        has_pages = any(f.relative_path.parent.name in ["pages", "app"] and f.extension in [".tsx", ".jsx", ".js", ".ts"]
+                       for f in self.structure.files)
+        has_package_json = any(f.relative_path.name == "package.json" for f in self.structure.files)
+
+        if has_components or has_pages:
+            if is_js_ts:
+                indicators.append("frontend web application")
+        elif has_api:
             indicators.append("API service")
+
         if has_models and has_db:
             indicators.append("with database persistence")
         if has_auth:
             indicators.append("with authentication")
 
         if not indicators:
-            return "A Python application (purpose unclear from structure)"
+            if is_js_ts and has_package_json:
+                return f"A {primary_lang} application (purpose unclear from structure)"
+            return f"A {primary_lang} application (purpose unclear from structure)"
 
         return "This appears to be " + " ".join(indicators) + "."
 
@@ -191,6 +208,56 @@ class Analyzer:
             if "redis" in content_lower:
                 frameworks.append(FrameworkInfo("Redis", "Cache/Message Broker"))
 
+            # JavaScript/TypeScript frameworks
+            if f.extension in [".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"]:
+                if "express" in content_lower and ("require('express')" in f.content or "from 'express'" in f.content or 'from "express"' in f.content):
+                    frameworks.append(FrameworkInfo("Express", "Web Framework (Node.js)"))
+                if "next" in content_lower and ("next/app" in f.content or "next/router" in f.content or "next/image" in f.content):
+                    frameworks.append(FrameworkInfo("Next.js", "React Framework"))
+                if "react" in content_lower and ("from 'react'" in f.content or 'from "react"' in f.content):
+                    frameworks.append(FrameworkInfo("React", "UI Library"))
+                if "vue" in content_lower and ("from 'vue'" in f.content or 'from "vue"' in f.content):
+                    frameworks.append(FrameworkInfo("Vue.js", "UI Framework"))
+                if "angular" in content_lower and "@angular" in f.content:
+                    frameworks.append(FrameworkInfo("Angular", "UI Framework"))
+                if "nestjs" in content_lower or "@nestjs" in f.content:
+                    frameworks.append(FrameworkInfo("NestJS", "Web Framework (Node.js)"))
+                if "prisma" in content_lower and ("@prisma/client" in f.content or "PrismaClient" in f.content):
+                    frameworks.append(FrameworkInfo("Prisma", "ORM (Node.js)"))
+                if "typeorm" in content_lower:
+                    frameworks.append(FrameworkInfo("TypeORM", "ORM (Node.js)"))
+                if "sequelize" in content_lower:
+                    frameworks.append(FrameworkInfo("Sequelize", "ORM (Node.js)"))
+                if "mongoose" in content_lower:
+                    frameworks.append(FrameworkInfo("Mongoose", "MongoDB ODM"))
+                if "jest" in content_lower and ("from 'jest'" in f.content or "describe(" in f.content):
+                    frameworks.append(FrameworkInfo("Jest", "Testing"))
+                if "mocha" in content_lower:
+                    frameworks.append(FrameworkInfo("Mocha", "Testing"))
+                if "vitest" in content_lower:
+                    frameworks.append(FrameworkInfo("Vitest", "Testing"))
+                if "tailwind" in content_lower:
+                    frameworks.append(FrameworkInfo("Tailwind CSS", "CSS Framework"))
+                if "graphql" in content_lower:
+                    frameworks.append(FrameworkInfo("GraphQL", "API Query Language"))
+                if "trpc" in content_lower or "@trpc" in f.content:
+                    frameworks.append(FrameworkInfo("tRPC", "Type-safe API"))
+
+            # Check package.json for dependencies
+            if f.relative_path.name == "package.json":
+                if '"express"' in f.content:
+                    frameworks.append(FrameworkInfo("Express", "Web Framework (Node.js)"))
+                if '"next"' in f.content:
+                    frameworks.append(FrameworkInfo("Next.js", "React Framework"))
+                if '"react"' in f.content:
+                    frameworks.append(FrameworkInfo("React", "UI Library"))
+                if '"vue"' in f.content:
+                    frameworks.append(FrameworkInfo("Vue.js", "UI Framework"))
+                if '"@nestjs/core"' in f.content:
+                    frameworks.append(FrameworkInfo("NestJS", "Web Framework (Node.js)"))
+                if '"typescript"' in f.content:
+                    frameworks.append(FrameworkInfo("TypeScript", "Language"))
+
         seen = set()
         unique = []
         for fw in frameworks:
@@ -207,6 +274,7 @@ class Analyzer:
         for f in self.structure.files:
             name = f.relative_path.name
 
+            # Python entry points
             if name == "main.py":
                 desc = "Main application entry point"
                 if f.content and "uvicorn" in f.content.lower():
@@ -225,6 +293,31 @@ class Analyzer:
             elif name == "asgi.py":
                 entry_points.append(EntryPoint(str(f.relative_path), "ASGI application entry"))
 
+            # JavaScript/TypeScript entry points
+            elif name in ["index.js", "index.ts", "main.js", "main.ts"]:
+                if len(f.relative_path.parts) <= 2:  # Root or src level
+                    desc = "Application entry point"
+                    if f.content:
+                        if "express" in f.content.lower():
+                            desc = "Express server entry point"
+                        elif "createServer" in f.content:
+                            desc = "HTTP server entry point"
+                    entry_points.append(EntryPoint(str(f.relative_path), desc))
+
+            elif name == "server.js" or name == "server.ts":
+                entry_points.append(EntryPoint(str(f.relative_path), "Server entry point"))
+
+            elif name in ["app.js", "app.ts", "app.tsx"]:
+                if len(f.relative_path.parts) <= 2:
+                    entry_points.append(EntryPoint(str(f.relative_path), "Application entry point"))
+
+            # Next.js/React entry points
+            elif name in ["_app.tsx", "_app.js"]:
+                entry_points.append(EntryPoint(str(f.relative_path), "Next.js application wrapper"))
+
+            elif name in ["layout.tsx", "layout.js"] and f.relative_path.parent.name == "app":
+                entry_points.append(EntryPoint(str(f.relative_path), "Next.js App Router layout"))
+
         return entry_points
 
     def _analyze_config(self) -> ConfigInfo:
@@ -233,18 +326,36 @@ class Analyzer:
         config = ConfigInfo()
 
         config_patterns = {
+            # Python
             "config.py": ("Python", "Application configuration module"),
             "settings.py": ("Python", "Django-style settings module"),
+            "pyproject.toml": ("TOML", "Python project configuration"),
+            "alembic.ini": ("INI", "Alembic database migration configuration"),
+            "pytest.ini": ("INI", "Pytest configuration"),
+            "setup.cfg": ("INI", "Python package configuration"),
+            # General
             "config.yaml": ("YAML", "YAML configuration file"),
             "config.yml": ("YAML", "YAML configuration file"),
             "config.json": ("JSON", "JSON configuration file"),
             ".env": ("Environment", "Environment variables file"),
             ".env.example": ("Environment", "Example environment variables template"),
             ".env.local": ("Environment", "Local environment overrides"),
-            "pyproject.toml": ("TOML", "Python project configuration"),
-            "alembic.ini": ("INI", "Alembic database migration configuration"),
-            "pytest.ini": ("INI", "Pytest configuration"),
-            "setup.cfg": ("INI", "Python package configuration"),
+            # JavaScript/TypeScript
+            "package.json": ("JSON", "Node.js package configuration"),
+            "tsconfig.json": ("JSON", "TypeScript compiler configuration"),
+            "next.config.js": ("JavaScript", "Next.js configuration"),
+            "next.config.mjs": ("JavaScript", "Next.js configuration"),
+            "vite.config.ts": ("TypeScript", "Vite bundler configuration"),
+            "vite.config.js": ("JavaScript", "Vite bundler configuration"),
+            "webpack.config.js": ("JavaScript", "Webpack bundler configuration"),
+            "tailwind.config.js": ("JavaScript", "Tailwind CSS configuration"),
+            "tailwind.config.ts": ("TypeScript", "Tailwind CSS configuration"),
+            "jest.config.js": ("JavaScript", "Jest testing configuration"),
+            "jest.config.ts": ("TypeScript", "Jest testing configuration"),
+            ".eslintrc.js": ("JavaScript", "ESLint configuration"),
+            ".eslintrc.json": ("JSON", "ESLint configuration"),
+            ".prettierrc": ("JSON", "Prettier configuration"),
+            "prisma/schema.prisma": ("Prisma", "Prisma database schema"),
         }
 
         for f in self.structure.files:
@@ -307,6 +418,44 @@ class Analyzer:
                             source_file=str(f.relative_path),
                             has_default=True,
                             description=f"Pydantic settings field: {field_name}",
+                        ))
+
+            # JavaScript/TypeScript env var detection
+            if f.content and f.extension in [".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"]:
+                # process.env.VAR_NAME
+                process_env_matches = re.findall(r'process\.env\.([A-Z_][A-Z0-9_]*)', f.content)
+                for var in process_env_matches:
+                    if var not in config.env_vars:
+                        config.env_vars.append(var)
+                        config.env_var_details.append(EnvVarInfo(
+                            name=var,
+                            source_file=str(f.relative_path),
+                            has_default=False,
+                            description="Node.js environment variable",
+                        ))
+
+                # process.env["VAR_NAME"] or process.env['VAR_NAME']
+                process_env_bracket = re.findall(r'process\.env\[["\']([A-Z_][A-Z0-9_]*)["\']', f.content)
+                for var in process_env_bracket:
+                    if var not in config.env_vars:
+                        config.env_vars.append(var)
+                        config.env_var_details.append(EnvVarInfo(
+                            name=var,
+                            source_file=str(f.relative_path),
+                            has_default=False,
+                            description="Node.js environment variable",
+                        ))
+
+                # Next.js public env vars (NEXT_PUBLIC_*)
+                next_public = re.findall(r'(NEXT_PUBLIC_[A-Z0-9_]+)', f.content)
+                for var in next_public:
+                    if var not in config.env_vars:
+                        config.env_vars.append(var)
+                        config.env_var_details.append(EnvVarInfo(
+                            name=var,
+                            source_file=str(f.relative_path),
+                            has_default=False,
+                            description="Next.js public environment variable (exposed to browser)",
                         ))
 
         return config
