@@ -24,6 +24,7 @@ IMPORT_FRAMEWORKS = {
 }
 
 ROUTE_METHODS = {"get", "post", "put", "delete", "patch"}
+ROUTE_RECEIVERS = {"app", "router", "api", "server"}
 
 
 @dataclass
@@ -150,6 +151,12 @@ class JsTsAnalyzer:
         func = node.child_by_field_name("function")
         if func is None or func.type != "member_expression":
             return None, None
+        object_node = func.child_by_field_name("object")
+        if object_node and object_node.type == "identifier":
+            receiver = self._node_text(object_node, source_bytes)
+            receiver_lower = receiver.lower()
+            if receiver_lower not in ROUTE_RECEIVERS and not receiver_lower.endswith("router"):
+                return None, None
         property_node = func.child_by_field_name("property")
         if not property_node:
             return None, None

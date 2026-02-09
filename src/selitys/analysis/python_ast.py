@@ -39,7 +39,10 @@ class PythonAstAnalyzer:
             except SyntaxError:
                 continue
 
-            bundle.facts.extend(self._entry_point_facts(file_info))
+            entry_facts = self._entry_point_facts(file_info)
+            bundle.facts.extend(entry_facts)
+            entry_files = {fact.attributes.get("file") for fact in entry_facts}
+            bundle.facts.extend(self._fastapi_app_facts(tree, file_info, entry_files))
             bundle.facts.extend(self._framework_facts(tree, file_info))
             bundle.facts.extend(self._route_facts(tree, file_info))
             bundle.facts.extend(self._model_facts(tree, file_info))
@@ -71,6 +74,28 @@ class PythonAstAnalyzer:
                 attributes={"file": str(file_info.relative_path)},
             )
         ]
+
+    def _fastapi_app_facts(
+        self,
+        tree: ast.AST,
+        file_info: FileInfo,
+        existing_entry_files: set[str | None],
+    ) -> list[Fact]:
+        if str(file_info.relative_path) in existing_entry_files:
+            return []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                if node.func.id == "FastAPI":
+                    return [
+                        Fact(
+                            kind=FactKind.ENTRY_POINT,
+                            summary="FastAPI application instance",
+                            confidence=Confidence.HIGH,
+                            evidence=[self._evidence(file_info, node, symbol="FastAPI")],
+                            attributes={"file": str(file_info.relative_path)},
+                        )
+                    ]
+        return []
 
     def _framework_facts(self, tree: ast.AST, file_info: FileInfo) -> list[Fact]:
         facts: list[Fact] = []
@@ -107,6 +132,7 @@ class PythonAstAnalyzer:
 
     def _route_facts(self, tree: ast.AST, file_info: FileInfo) -> list[Fact]:
         facts: list[Fact] = []
+        router_prefixes = self._router_prefixes(tree)
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for decorator in node.decorator_list:
@@ -119,6 +145,13 @@ class PythonAstAnalyzer:
                     path = None
                     if call.args and isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str):
                         path = call.args[0].value
+                    router_name = None
+                    if isinstance(call.func.value, ast.Name):
+                        router_name = call.func.value.id
+                    if router_name and path:
+                        prefix = router_prefixes.get(router_name)
+                        if prefix:
+                            path = self._join_path(prefix, path)
                     summary = f"{method.upper()} {path or '<path>'}"
                     facts.append(
                         Fact(
@@ -130,6 +163,7 @@ class PythonAstAnalyzer:
                                 "method": method.upper(),
                                 "path": path,
                                 "handler": node.name,
+                                "router": router_name,
                                 "file": str(file_info.relative_path),
                             },
                         )
@@ -190,6 +224,31 @@ class PythonAstAnalyzer:
                         if isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str):
                             return stmt.value.value
         return None
+
+    def _router_prefixes(self, tree: ast.AST) -> dict[str, str]:
+        prefixes: dict[str, str] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+                if isinstance(node.value.func, ast.Name) and node.value.func.id == "APIRouter":
+                    prefix = None
+                    for keyword in node.value.keywords:
+                        if keyword.arg == "prefix" and isinstance(keyword.value, ast.Constant):
+                            if isinstance(keyword.value.value, str):
+                                prefix = keyword.value.value
+                    if prefix:
+                        for target in node.targets:
+                            if isinstance(target, ast.Name):
+                                prefixes[target.id] = prefix
+        return prefixes
+
+    def _join_path(self, prefix: str, path: str) -> str:
+        if not prefix:
+            return path
+        if prefix.endswith("/") and path.startswith("/"):
+            return prefix[:-1] + path
+        if not prefix.endswith("/") and not path.startswith("/"):
+            return prefix + "/" + path
+        return prefix + path
 
     def _evidence(self, file_info: FileInfo, node: ast.AST, symbol: str | None = None) -> Evidence:
         return Evidence(
