@@ -3,6 +3,9 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from pathspec import PathSpec
+from pathspec.patterns.gitwildmatch import GitWildMatchPattern
+
 IGNORED_DIRS = {
     ".git",
     ".hg",
@@ -133,10 +136,19 @@ class RepoStructure:
 class RepoScanner:
     """Scans a repository and builds an internal representation."""
 
-    def __init__(self, repo_path: Path):
+    def __init__(
+        self,
+        repo_path: Path,
+        *,
+        max_file_size_bytes: int | None = 2_000_000,
+        respect_gitignore: bool = True,
+    ):
         self.repo_path = Path(repo_path).resolve()
+        self.max_file_size_bytes = max_file_size_bytes
+        self.respect_gitignore = respect_gitignore
+        self._gitignore_spec = self._load_gitignore() if respect_gitignore else None
 
-    def _should_ignore(self, path: Path) -> bool:
+    def _should_ignore(self, path: Path, *, is_dir: bool) -> bool:
         """Check if a path should be ignored."""
         parts = path.parts
         for part in parts:
@@ -144,7 +156,23 @@ class RepoScanner:
                 return True
             if part.endswith(".egg-info"):
                 return True
+        if self._gitignore_spec:
+            path_str = path.as_posix()
+            if is_dir and not path_str.endswith("/"):
+                path_str = f"{path_str}/"
+            if self._gitignore_spec.match_file(path_str):
+                return True
         return False
+
+    def _load_gitignore(self) -> PathSpec | None:
+        gitignore_path = self.repo_path / ".gitignore"
+        if not gitignore_path.exists():
+            return None
+        try:
+            lines = gitignore_path.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            return None
+        return PathSpec.from_lines(GitWildMatchPattern, lines)
 
     def _is_binary(self, path: Path) -> bool:
         """Check if a file is binary based on extension."""
@@ -178,7 +206,7 @@ class RepoScanner:
         for path in sorted(self.repo_path.rglob("*")):
             relative_path = path.relative_to(self.repo_path)
 
-            if self._should_ignore(relative_path):
+            if self._should_ignore(relative_path, is_dir=path.is_dir()):
                 continue
 
             if path.is_dir():
@@ -201,7 +229,9 @@ class RepoScanner:
                 line_count = 0
                 read_error = None
 
-                if read_content and not is_binary:
+                if self.max_file_size_bytes is not None and size > self.max_file_size_bytes:
+                    read_error = f"Skipped: file size {size} exceeds limit {self.max_file_size_bytes}"
+                elif read_content and not is_binary:
                     content, line_count, read_error = self._read_file_content(path)
 
                 file_info = FileInfo(
