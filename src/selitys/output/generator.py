@@ -5,8 +5,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, TextIO
 
-from analyzer import AnalysisResult
-from scanner import RepoStructure
+from selitys.core.analyzer import AnalysisResult
+from selitys.core.scanner import RepoStructure
 
 
 class MarkdownGenerator:

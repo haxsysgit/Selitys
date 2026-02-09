@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from scanner import RepoStructure
+from selitys.core.scanner import RepoStructure
 
 
 @dataclass
