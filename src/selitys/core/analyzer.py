@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from selitys.analysis.model import FactBundle
+from selitys.core.fact_pipeline import FactPipeline
 from selitys.core.scanner import RepoStructure
 
 
@@ -107,6 +109,7 @@ class AnalysisResult:
     request_flow: RequestFlow | None = None
     first_read_files: list[tuple[str, str, int]] = field(default_factory=list)
     skip_files: list[tuple[str, str]] = field(default_factory=list)
+    fact_bundle: FactBundle = field(default_factory=FactBundle)
 
 
 class Analyzer:
@@ -136,6 +139,7 @@ class Analyzer:
         result.detailed_purpose = self._build_detailed_purpose(result)
         result.request_flow = self._trace_request_flow()
         result.first_read_files, result.skip_files = self._recommend_reading_order()
+        result.fact_bundle = FactPipeline().analyze(self.structure)
 
         return result
 
