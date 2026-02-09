@@ -10,4 +10,4 @@ wheels/
 .venv
 selitys.md
 selitys_prompt.md
-test_backend/
+fixtures/test_backend/
