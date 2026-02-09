@@ -1,14 +1,8 @@
 """Schema definitions for selitys output structure."""
 
 from dataclasses import dataclass, field
-from enum import Enum
 
-
-class Confidence(Enum):
-    """Confidence level for inferred information."""
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
+from selitys.analysis.model import Confidence
 
 
 @dataclass
