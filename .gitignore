@@ -8,6 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+*.db
+*.db.bak
+.env
+.env.*
+**/_db/
 selitys.md
 selitys_prompt.md
-fixtures/test_backend/
