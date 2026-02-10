@@ -25,11 +25,27 @@ ROUTE_METHODS = {"get", "post", "put", "delete", "patch"}
 
 
 @dataclass
+class ImportTarget:
+    module: str
+    attr: str | None
+
+
+@dataclass
+class RouterInclude:
+    source_file: str
+    child_file: str
+    prefix: str
+
+
+@dataclass
 class PythonAstAnalyzer:
     """Analyze Python files using AST parsing."""
 
     def analyze(self, structure: RepoStructure) -> FactBundle:
         bundle = FactBundle()
+        route_facts: list[Fact] = []
+        include_edges: list[RouterInclude] = []
+        file_by_module, module_by_file = self._build_module_index(structure)
 
         for file_info in self._python_files(structure):
             if not file_info.content:
@@ -44,8 +60,23 @@ class PythonAstAnalyzer:
             entry_files = {fact.attributes.get("file") for fact in entry_facts}
             bundle.facts.extend(self._fastapi_app_facts(tree, file_info, entry_files))
             bundle.facts.extend(self._framework_facts(tree, file_info))
-            bundle.facts.extend(self._route_facts(tree, file_info))
+            router_prefixes = self._router_prefixes(tree)
+            route_facts.extend(self._route_facts(tree, file_info, router_prefixes))
             bundle.facts.extend(self._model_facts(tree, file_info))
+
+            import_map = self._build_import_map(tree, module_by_file.get(str(file_info.relative_path)))
+            include_edges.extend(
+                self._include_router_edges(
+                    tree,
+                    file_info,
+                    import_map,
+                    file_by_module,
+                    set(router_prefixes.keys()),
+                )
+            )
+
+        self._apply_include_prefixes(route_facts, include_edges)
+        bundle.facts.extend(route_facts)
 
         return bundle
 
@@ -130,9 +161,13 @@ class PythonAstAnalyzer:
                         )
         return self._dedupe_facts(facts)
 
-    def _route_facts(self, tree: ast.AST, file_info: FileInfo) -> list[Fact]:
+    def _route_facts(
+        self,
+        tree: ast.AST,
+        file_info: FileInfo,
+        router_prefixes: dict[str, str],
+    ) -> list[Fact]:
         facts: list[Fact] = []
-        router_prefixes = self._router_prefixes(tree)
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for decorator in node.decorator_list:
@@ -224,6 +259,177 @@ class PythonAstAnalyzer:
                         if isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str):
                             return stmt.value.value
         return None
+
+    def _build_module_index(self, structure: RepoStructure) -> tuple[dict[str, str], dict[str, str]]:
+        file_by_module: dict[str, str] = {}
+        module_by_file: dict[str, str] = {}
+        for file_info in self._python_files(structure):
+            rel = file_info.relative_path
+            if rel.name == "__init__.py":
+                module_path = ".".join(rel.parent.parts)
+            else:
+                module_path = ".".join(rel.with_suffix("").parts)
+            if not module_path:
+                continue
+            file_by_module[module_path] = str(rel)
+            module_by_file[str(rel)] = module_path
+        return file_by_module, module_by_file
+
+    def _build_import_map(self, tree: ast.AST, current_module: str | None) -> dict[str, ImportTarget]:
+        import_map: dict[str, ImportTarget] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.asname:
+                        import_map[alias.asname] = ImportTarget(module=alias.name, attr=None)
+            elif isinstance(node, ast.ImportFrom):
+                module = self._resolve_import_module(node.module, current_module, node.level)
+                if not module:
+                    continue
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    local = alias.asname or alias.name
+                    import_map[local] = ImportTarget(module=module, attr=alias.name)
+        return import_map
+
+    def _resolve_import_module(
+        self,
+        module: str | None,
+        current_module: str | None,
+        level: int,
+    ) -> str | None:
+        if level <= 0:
+            return module
+        if not current_module:
+            return module
+        parts = current_module.split(".")
+        if level > len(parts):
+            base = []
+        else:
+            base = parts[:-level]
+        if module:
+            base.append(module)
+        return ".".join([p for p in base if p])
+
+    def _include_router_edges(
+        self,
+        tree: ast.AST,
+        file_info: FileInfo,
+        import_map: dict[str, ImportTarget],
+        file_by_module: dict[str, str],
+        router_names: set[str],
+    ) -> list[RouterInclude]:
+        edges: list[RouterInclude] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr != "include_router":
+                continue
+            prefix = self._extract_prefix(node)
+            if not prefix:
+                continue
+            if not node.args:
+                continue
+            child_file = self._resolve_router_target(
+                node.args[0],
+                import_map,
+                file_by_module,
+                str(file_info.relative_path),
+                router_names,
+            )
+            if not child_file:
+                continue
+            edges.append(RouterInclude(source_file=str(file_info.relative_path), child_file=child_file, prefix=prefix))
+        return edges
+
+    def _extract_prefix(self, node: ast.Call) -> str | None:
+        for keyword in node.keywords:
+            if keyword.arg == "prefix" and isinstance(keyword.value, ast.Constant):
+                if isinstance(keyword.value.value, str):
+                    return keyword.value.value
+        return None
+
+    def _resolve_router_target(
+        self,
+        target: ast.AST,
+        import_map: dict[str, ImportTarget],
+        file_by_module: dict[str, str],
+        default_file: str,
+        router_names: set[str],
+    ) -> str | None:
+        if isinstance(target, ast.Name):
+            name = target.id
+            if name in import_map:
+                mapped = import_map[name]
+                if mapped.attr and mapped.attr != "router":
+                    return None
+                return file_by_module.get(mapped.module)
+            if name in router_names:
+                return default_file
+            return None
+        if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
+            base_name = target.value.id
+            if base_name in import_map:
+                mapped = import_map[base_name]
+                if mapped.attr:
+                    return None
+                return file_by_module.get(mapped.module)
+        return None
+
+    def _apply_include_prefixes(self, route_facts: list[Fact], edges: list[RouterInclude]) -> None:
+        if not edges:
+            return
+        prefixes_by_file = self._build_prefix_map(edges)
+        for fact in route_facts:
+            path = fact.attributes.get("path")
+            file_path = fact.attributes.get("file")
+            if not path or not file_path:
+                continue
+            prefixes = prefixes_by_file.get(file_path)
+            if not prefixes:
+                continue
+            prefix = max(prefixes, key=len)
+            if path.startswith(prefix):
+                continue
+            new_path = self._join_path(prefix, path)
+            fact.attributes["path"] = new_path
+            method = fact.attributes.get("method", "")
+            fact.summary = f"{method} {new_path}".strip()
+
+    def _build_prefix_map(self, edges: list[RouterInclude]) -> dict[str, list[str]]:
+        outgoing: dict[str, list[RouterInclude]] = {}
+        incoming: dict[str, int] = {}
+        nodes: set[str] = set()
+        for edge in edges:
+            outgoing.setdefault(edge.source_file, []).append(edge)
+            incoming[edge.child_file] = incoming.get(edge.child_file, 0) + 1
+            nodes.add(edge.source_file)
+            nodes.add(edge.child_file)
+        roots = [node for node in nodes if incoming.get(node, 0) == 0]
+        prefixes_by_file: dict[str, list[str]] = {}
+        for root in roots:
+            self._walk_prefixes(root, "", outgoing, prefixes_by_file, set())
+        return prefixes_by_file
+
+    def _walk_prefixes(
+        self,
+        node: str,
+        current_prefix: str,
+        outgoing: dict[str, list[RouterInclude]],
+        prefixes_by_file: dict[str, list[str]],
+        seen: set[tuple[str, str]],
+    ) -> None:
+        for edge in outgoing.get(node, []):
+            combined = self._join_path(current_prefix, edge.prefix)
+            key = (edge.child_file, combined)
+            if key in seen:
+                continue
+            seen.add(key)
+            prefixes_by_file.setdefault(edge.child_file, []).append(combined)
+            self._walk_prefixes(edge.child_file, combined, outgoing, prefixes_by_file, seen)
 
     def _router_prefixes(self, tree: ast.AST) -> dict[str, str]:
         prefixes: dict[str, str] = {}

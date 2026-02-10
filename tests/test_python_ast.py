@@ -27,7 +27,7 @@ class TestPythonAstAnalyzer(unittest.TestCase):
         self.assertIn("SQLAlchemy", framework_names)
 
         routes = [f for f in facts if f.kind == FactKind.ROUTE]
-        self.assertTrue(any(f.attributes.get("path") == "/register" for f in routes))
+        self.assertTrue(any(f.attributes.get("path") == "/auth/register" for f in routes))
 
         entities = [f for f in facts if f.kind == FactKind.DOMAIN_ENTITY]
         self.assertGreater(len(entities), 0)
