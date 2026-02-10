@@ -107,6 +107,10 @@ JS and TS support is available but less mature than Python.
 
 The current spec lives in `selitys-v2-spec.md`.
 
+## JSON Schema
+
+The JSON output shape is documented in `docs/selitys-analysis.schema.json`.
+
 ---
 
 ## License

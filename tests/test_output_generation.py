@@ -44,6 +44,7 @@ class TestOutputGeneration(unittest.TestCase):
             data = json.loads(output_path.read_text(encoding="utf-8"))
 
         self.assertEqual(data.get("version"), __version__)
+        self.assertEqual(data.get("schema_version"), __version__)
         self.assertIn("facts", data)
         self.assertGreater(len(data["facts"]), 0)
 

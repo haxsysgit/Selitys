@@ -558,6 +558,7 @@ class MarkdownGenerator:
 
         data: dict[str, Any] = {
             "version": __version__,
+            "schema_version": __version__,
             "repository": self.analysis.repo_name,
             "summary": {
                 "purpose": self.analysis.likely_purpose,

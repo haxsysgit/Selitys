@@ -1,0 +1,316 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "selitys analysis output",
+  "type": "object",
+  "required": [
+    "version",
+    "schema_version",
+    "repository",
+    "summary",
+    "frameworks",
+    "entry_points",
+    "domain_entities",
+    "api_endpoints",
+    "subsystems",
+    "patterns",
+    "risk_areas",
+    "configuration",
+    "request_flow",
+    "first_read",
+    "facts"
+  ],
+  "properties": {
+    "version": { "type": "string" },
+    "schema_version": { "type": "string" },
+    "repository": { "type": "string" },
+    "summary": {
+      "type": "object",
+      "required": ["purpose", "detailed_purpose", "total_files", "total_lines", "languages"],
+      "properties": {
+        "purpose": { "type": "string" },
+        "detailed_purpose": { "type": "string" },
+        "total_files": { "type": "integer" },
+        "total_lines": { "type": "integer" },
+        "languages": {
+          "type": "object",
+          "additionalProperties": { "type": "integer" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "frameworks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/framework" }
+    },
+    "entry_points": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entry_point" }
+    },
+    "domain_entities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/domain_entity" }
+    },
+    "api_endpoints": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/api_endpoint" }
+    },
+    "subsystems": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/subsystem" }
+    },
+    "patterns": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "risk_areas": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/risk_area" }
+    },
+    "configuration": {
+      "type": "object",
+      "required": ["files", "environment_variables"],
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/config_file" }
+        },
+        "environment_variables": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/env_var" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "request_flow": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/request_flow" }
+      ]
+    },
+    "first_read": {
+      "type": "object",
+      "required": ["recommended", "skip"],
+      "properties": {
+        "recommended": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/first_read_item" }
+        },
+        "skip": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/skip_item" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "facts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/fact" }
+    }
+  },
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "file": { "type": ["string", "null"] },
+        "line_start": { "type": ["integer", "null"] },
+        "line_end": { "type": ["integer", "null"] },
+        "symbol": { "type": ["string", "null"] },
+        "snippet": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "framework": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "category": { "type": ["string", "null"] },
+        "confidence": { "type": "string" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "entry_point": {
+      "type": "object",
+      "required": ["path", "description"],
+      "properties": {
+        "path": { "type": "string" },
+        "description": { "type": "string" },
+        "confidence": { "type": "string" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "domain_entity": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string" },
+            "table": { "type": ["string", "null"] },
+            "confidence": { "type": "string" },
+            "evidence": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/evidence" }
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "api_endpoint": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["method", "path", "source"],
+          "properties": {
+            "method": { "type": "string" },
+            "path": { "type": ["string", "null"] },
+            "source": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "required": ["method", "path"],
+          "properties": {
+            "method": { "type": "string" },
+            "path": { "type": ["string", "null"] },
+            "handler": { "type": ["string", "null"] },
+            "file": { "type": ["string", "null"] },
+            "confidence": { "type": "string" },
+            "evidence": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/evidence" }
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "subsystem": {
+      "type": "object",
+      "required": ["name", "directory", "description", "key_files"],
+      "properties": {
+        "name": { "type": "string" },
+        "directory": { "type": "string" },
+        "description": { "type": "string" },
+        "key_files": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "risk_area": {
+      "type": "object",
+      "required": ["location", "type", "description", "severity"],
+      "properties": {
+        "location": { "type": "string" },
+        "type": { "type": "string" },
+        "description": { "type": "string" },
+        "severity": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "config_file": {
+      "type": "object",
+      "required": ["path", "type", "description", "settings_count"],
+      "properties": {
+        "path": { "type": "string" },
+        "type": { "type": "string" },
+        "description": { "type": "string" },
+        "settings_count": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "env_var": {
+      "type": "object",
+      "required": ["name", "source", "has_default", "default"],
+      "properties": {
+        "name": { "type": "string" },
+        "source": { "type": "string" },
+        "has_default": { "type": "boolean" },
+        "default": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "request_flow": {
+      "type": "object",
+      "required": ["name", "description", "steps", "touchpoints"],
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/request_step" }
+        },
+        "touchpoints": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "request_step": {
+      "type": "object",
+      "required": ["order", "location", "description", "file", "code_insight", "what_happens", "key_functions"],
+      "properties": {
+        "order": { "type": "integer" },
+        "location": { "type": "string" },
+        "description": { "type": "string" },
+        "file": { "type": ["string", "null"] },
+        "code_insight": { "type": "string" },
+        "what_happens": { "type": "string" },
+        "key_functions": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "first_read_item": {
+      "type": "object",
+      "required": ["path", "reason", "priority"],
+      "properties": {
+        "path": { "type": "string" },
+        "reason": { "type": "string" },
+        "priority": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "skip_item": {
+      "type": "object",
+      "required": ["path", "reason"],
+      "properties": {
+        "path": { "type": "string" },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "fact": {
+      "type": "object",
+      "required": ["kind", "summary", "confidence", "evidence", "attributes"],
+      "properties": {
+        "kind": { "type": "string" },
+        "summary": { "type": "string" },
+        "confidence": { "type": "string" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence" }
+        },
+        "attributes": { "type": "object" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
