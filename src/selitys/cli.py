@@ -8,6 +8,7 @@ from rich.table import Table
 
 from selitys import __version__
 from selitys.core.analyzer import Analyzer
+from selitys.core.qa import QuestionAnswerer
 from selitys.core.scanner import RepoScanner
 from selitys.output.generator import MarkdownGenerator
 
@@ -190,6 +191,73 @@ def explain(
         except KeyboardInterrupt:
             console.print()
             console.print("[yellow]Watch mode stopped.[/yellow]")
+
+
+@app.command()
+def ask(
+    repo_path: Path = typer.Argument(
+        ...,
+        help="Path to the repository to query",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+    question: str = typer.Argument(
+        ...,
+        help="Question about the codebase (e.g. 'what frameworks are used?')",
+    ),
+    max_file_size: int = typer.Option(
+        2_000_000,
+        "--max-file-size",
+        help="Skip files larger than this size in bytes (0 to disable)",
+    ),
+    respect_gitignore: bool = typer.Option(
+        True,
+        "--respect-gitignore/--no-respect-gitignore",
+        help="Respect .gitignore rules when scanning",
+    ),
+) -> None:
+    """Ask a question about a codebase and get an instant answer."""
+    max_size = None if max_file_size <= 0 else max_file_size
+
+    scanner = RepoScanner(
+        repo_path,
+        max_file_size_bytes=max_size,
+        respect_gitignore=respect_gitignore,
+    )
+    with console.status("[bold green]Scanning repository..."):
+        structure = scanner.scan()
+
+    with console.status("[bold green]Analyzing codebase..."):
+        analyzer = Analyzer(structure)
+        analysis = analyzer.analyze()
+
+    qa = QuestionAnswerer(structure, analysis)
+    answer = qa.ask(question)
+
+    # Display answer
+    console.print()
+    console.print(f"[bold cyan]Q:[/bold cyan] {answer.question}")
+    console.print()
+
+    if answer.confidence == "low":
+        console.print(f"[yellow]{answer.summary}[/yellow]")
+    else:
+        console.print(f"[bold green]{answer.summary}[/bold green]")
+
+    if answer.details:
+        console.print()
+        for line in answer.details:
+            console.print(f"  {line}")
+
+    if answer.related_files:
+        console.print()
+        console.print("[dim]Related files:[/dim]")
+        for f in answer.related_files[:10]:
+            console.print(f"  [dim]{f}[/dim]")
+
+    console.print()
 
 
 @app.command()
