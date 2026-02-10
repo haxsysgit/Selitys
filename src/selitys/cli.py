@@ -27,6 +27,8 @@ def run_analysis(
     quiet: bool = False,
     max_file_size_bytes: int | None = None,
     respect_gitignore: bool = True,
+    include_patterns: list[str] | None = None,
+    exclude_patterns: list[str] | None = None,
 ) -> None:
     """Run analysis and generate output files."""
     if not quiet:
@@ -37,6 +39,8 @@ def run_analysis(
         repo_path,
         max_file_size_bytes=max_file_size_bytes,
         respect_gitignore=respect_gitignore,
+        include_patterns=include_patterns,
+        exclude_patterns=exclude_patterns,
     )
     if not quiet:
         with console.status("[bold green]Scanning repository..."):
@@ -130,6 +134,18 @@ def explain(
         "--respect-gitignore/--no-respect-gitignore",
         help="Respect .gitignore rules when scanning",
     ),
+    include: list[str] = typer.Option(
+        None,
+        "--include",
+        "-i",
+        help="Glob patterns to include (can be repeated)",
+    ),
+    exclude: list[str] = typer.Option(
+        None,
+        "--exclude",
+        "-x",
+        help="Glob patterns to exclude (can be repeated)",
+    ),
 ) -> None:
     """Analyze a repository and generate explanation documents."""
     if output_dir is None:
@@ -137,7 +153,15 @@ def explain(
 
     # Initial run
     max_size = None if max_file_size <= 0 else max_file_size
-    run_analysis(repo_path, output_dir, json_output, max_file_size_bytes=max_size, respect_gitignore=respect_gitignore)
+    run_analysis(
+        repo_path,
+        output_dir,
+        json_output,
+        max_file_size_bytes=max_size,
+        respect_gitignore=respect_gitignore,
+        include_patterns=include,
+        exclude_patterns=exclude,
+    )
 
     if watch:
         from watchfiles import watch as watchfiles_watch
@@ -159,6 +183,8 @@ def explain(
                     quiet=True,
                     max_file_size_bytes=max_size,
                     respect_gitignore=respect_gitignore,
+                    include_patterns=include,
+                    exclude_patterns=exclude,
                 )
                 console.print(f"[green]Regenerated at {Path(changed_files[0]).stat().st_mtime if changed_files else 'now'}[/green]")
         except KeyboardInterrupt:

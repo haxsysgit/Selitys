@@ -142,11 +142,15 @@ class RepoScanner:
         *,
         max_file_size_bytes: int | None = 2_000_000,
         respect_gitignore: bool = True,
+        include_patterns: list[str] | None = None,
+        exclude_patterns: list[str] | None = None,
     ):
         self.repo_path = Path(repo_path).resolve()
         self.max_file_size_bytes = max_file_size_bytes
         self.respect_gitignore = respect_gitignore
         self._gitignore_spec = self._load_gitignore() if respect_gitignore else None
+        self._include_spec = self._load_spec(include_patterns)
+        self._exclude_spec = self._load_spec(exclude_patterns)
 
     def _should_ignore(self, path: Path, *, is_dir: bool) -> bool:
         """Check if a path should be ignored."""
@@ -162,6 +166,16 @@ class RepoScanner:
                 path_str = f"{path_str}/"
             if self._gitignore_spec.match_file(path_str):
                 return True
+        if self._exclude_spec:
+            path_str = path.as_posix()
+            if is_dir and not path_str.endswith("/"):
+                path_str = f"{path_str}/"
+            if self._exclude_spec.match_file(path_str):
+                return True
+        if self._include_spec and not is_dir:
+            path_str = path.as_posix()
+            if not self._include_spec.match_file(path_str):
+                return True
         return False
 
     def _load_gitignore(self) -> PathSpec | None:
@@ -173,6 +187,11 @@ class RepoScanner:
         except Exception:
             return None
         return PathSpec.from_lines(GitWildMatchPattern, lines)
+
+    def _load_spec(self, patterns: list[str] | None) -> PathSpec | None:
+        if not patterns:
+            return None
+        return PathSpec.from_lines(GitWildMatchPattern, patterns)
 
     def _is_binary(self, path: Path) -> bool:
         """Check if a file is binary based on extension."""

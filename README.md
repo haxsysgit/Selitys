@@ -42,6 +42,9 @@ selitys explain /path/to/your/backend -o ./output
 # Include JSON output
 selitys explain /path/to/your/backend -o ./output --json
 
+# Include only Python files and exclude tests
+selitys explain /path/to/your/backend -o ./output --include "*.py" --exclude "tests/**"
+
 # Check version
 selitys version
 ```
@@ -58,6 +61,13 @@ This generates five markdown files in the output directory:
 
 Optional:
 - `selitys-analysis.json` when `--json` is used
+
+## Scanning Options
+
+- `--respect-gitignore/--no-respect-gitignore`: honor `.gitignore` rules
+- `--max-file-size`: skip large files (0 disables)
+- `--include`: limit scanning to matching glob patterns
+- `--exclude`: skip matching glob patterns
 
 ---
 
