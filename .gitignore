@@ -14,5 +14,8 @@ wheels/
 .env.*
 **/_db/
 tests/test3/
+fixtures/
+samples/
+selitys-v2-spec.md
 selitys.md
 selitys_prompt.md
