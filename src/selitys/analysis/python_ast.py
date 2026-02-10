@@ -366,17 +366,36 @@ class PythonAstAnalyzer:
                 mapped = import_map[name]
                 if mapped.attr and mapped.attr != "router":
                     return None
-                return file_by_module.get(mapped.module)
+                module = mapped.module
+                if mapped.attr and mapped.attr != "router":
+                    module = f"{module}.{mapped.attr}"
+                return file_by_module.get(module)
             if name in router_names:
                 return default_file
             return None
-        if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
-            base_name = target.value.id
+        chain = self._attribute_chain(target)
+        if chain and chain[-1] == "router":
+            base_name = chain[0]
+            rest = chain[1:-1]
             if base_name in import_map:
                 mapped = import_map[base_name]
+                module = mapped.module
                 if mapped.attr:
-                    return None
-                return file_by_module.get(mapped.module)
+                    module = f"{module}.{mapped.attr}"
+                if rest:
+                    module = module + "." + ".".join(rest)
+                return file_by_module.get(module)
+        return None
+
+    def _attribute_chain(self, node: ast.AST) -> list[str] | None:
+        if isinstance(node, ast.Name):
+            return [node.id]
+        if isinstance(node, ast.Attribute):
+            base = self._attribute_chain(node.value)
+            if base is None:
+                return None
+            base.append(node.attr)
+            return base
         return None
 
     def _apply_include_prefixes(self, route_facts: list[Fact], edges: list[RouterInclude]) -> None:
@@ -433,8 +452,16 @@ class PythonAstAnalyzer:
 
     def _router_prefixes(self, tree: ast.AST) -> dict[str, str]:
         prefixes: dict[str, str] = {}
+        factory_prefixes = self._router_factory_prefixes(tree)
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+                if isinstance(node.value.func, ast.Name):
+                    factory_prefix = factory_prefixes.get(node.value.func.id)
+                    if factory_prefix:
+                        for target in node.targets:
+                            if isinstance(target, ast.Name):
+                                prefixes[target.id] = factory_prefix
+                        continue
                 if isinstance(node.value.func, ast.Name) and node.value.func.id == "APIRouter":
                     prefix = None
                     for keyword in node.value.keywords:
@@ -446,6 +473,37 @@ class PythonAstAnalyzer:
                             if isinstance(target, ast.Name):
                                 prefixes[target.id] = prefix
         return prefixes
+
+    def _router_factory_prefixes(self, tree: ast.AST) -> dict[str, str]:
+        factory_prefixes: dict[str, str] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                prefix = self._router_prefix_from_function(node)
+                if prefix:
+                    factory_prefixes[node.name] = prefix
+        return factory_prefixes
+
+    def _router_prefix_from_function(self, node: ast.AST) -> str | None:
+        assigned: dict[str, str] = {}
+        for child in ast.walk(node):
+            if isinstance(child, ast.Assign) and isinstance(child.value, ast.Call):
+                if isinstance(child.value.func, ast.Name) and child.value.func.id == "APIRouter":
+                    prefix = self._extract_prefix(child.value)
+                    if prefix:
+                        for target in child.targets:
+                            if isinstance(target, ast.Name):
+                                assigned[target.id] = prefix
+            elif isinstance(child, ast.Return) and child.value is not None:
+                if isinstance(child.value, ast.Call):
+                    if isinstance(child.value.func, ast.Name) and child.value.func.id == "APIRouter":
+                        prefix = self._extract_prefix(child.value)
+                        if prefix:
+                            return prefix
+                if isinstance(child.value, ast.Name):
+                    found = assigned.get(child.value.id)
+                    if found:
+                        return found
+        return None
 
     def _join_path(self, prefix: str, path: str) -> str:
         if not prefix:
