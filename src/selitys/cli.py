@@ -19,13 +19,25 @@ app = typer.Typer(
 console = Console()
 
 
-def run_analysis(repo_path: Path, output_dir: Path, json_output: bool, quiet: bool = False) -> None:
+def run_analysis(
+    repo_path: Path,
+    output_dir: Path,
+    json_output: bool,
+    *,
+    quiet: bool = False,
+    max_file_size_bytes: int | None = None,
+    respect_gitignore: bool = True,
+) -> None:
     """Run analysis and generate output files."""
     if not quiet:
         console.print(f"[bold]selitys[/bold] - Analyzing: {repo_path}")
         console.print()
 
-    scanner = RepoScanner(repo_path)
+    scanner = RepoScanner(
+        repo_path,
+        max_file_size_bytes=max_file_size_bytes,
+        respect_gitignore=respect_gitignore,
+    )
     if not quiet:
         with console.status("[bold green]Scanning repository..."):
             structure = scanner.scan()
@@ -108,13 +120,24 @@ def explain(
         "-w",
         help="Watch for file changes and regenerate output automatically",
     ),
+    max_file_size: int = typer.Option(
+        2_000_000,
+        "--max-file-size",
+        help="Skip files larger than this size in bytes (0 to disable)",
+    ),
+    respect_gitignore: bool = typer.Option(
+        True,
+        "--respect-gitignore/--no-respect-gitignore",
+        help="Respect .gitignore rules when scanning",
+    ),
 ) -> None:
     """Analyze a repository and generate explanation documents."""
     if output_dir is None:
         output_dir = Path.cwd()
 
     # Initial run
-    run_analysis(repo_path, output_dir, json_output)
+    max_size = None if max_file_size <= 0 else max_file_size
+    run_analysis(repo_path, output_dir, json_output, max_file_size_bytes=max_size, respect_gitignore=respect_gitignore)
 
     if watch:
         from watchfiles import watch as watchfiles_watch
@@ -129,7 +152,14 @@ def explain(
                 if any(str(output_dir) in f for f in changed_files):
                     continue
                 console.print(f"[dim]Changes detected in {len(changes)} file(s), regenerating...[/dim]")
-                run_analysis(repo_path, output_dir, json_output, quiet=True)
+                run_analysis(
+                    repo_path,
+                    output_dir,
+                    json_output,
+                    quiet=True,
+                    max_file_size_bytes=max_size,
+                    respect_gitignore=respect_gitignore,
+                )
                 console.print(f"[green]Regenerated at {Path(changed_files[0]).stat().st_mtime if changed_files else 'now'}[/green]")
         except KeyboardInterrupt:
             console.print()
