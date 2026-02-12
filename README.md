@@ -6,6 +6,24 @@ Available as a **CLI**, a **web UI**, or both via **Docker**.
 
 The name "selitys" is Finnish for "explanation".
 
+## 🌐 Try It Now
+
+**[selitys.onrender.com](https://selitys.onrender.com)** — paste any public GitHub URL and explore the analysis instantly. No install required.
+
+> First load may take ~30s if the service is cold (free tier).
+
+---
+
+## Screenshots
+
+| Overview | Architecture | Dependency Tree |
+|----------|-------------|-----------------|
+| ![Overview](docs/screenshots/overview.png) | ![Architecture](docs/screenshots/architecture.png) | ![Tree](docs/screenshots/tree.png) |
+
+| Request Flow | Ask (Q&A) |
+|-------------|-----------|
+| ![Request Flow](docs/screenshots/request-flow.png) | ![Ask](docs/screenshots/ask.png) |
+
 ---
 
 ## Install
@@ -19,7 +37,7 @@ pip install selitys
 ### Option 2: Docker (web UI + API)
 
 ```bash
-git clone https://github.com/haxhimitsu/selitys.git
+git clone https://github.com/haxsysgit/selitys.git
 cd selitys
 cp .env.example .env  # optional: add LLM API key
 docker compose up
@@ -30,7 +48,7 @@ Open **http://localhost:8000** — paste a local path or GitHub URL and go.
 ### Option 3: From source
 
 ```bash
-git clone https://github.com/haxhimitsu/selitys.git
+git clone https://github.com/haxsysgit/selitys.git
 cd selitys
 pip install -e ".[backend]"
 

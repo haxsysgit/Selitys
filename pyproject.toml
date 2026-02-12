@@ -1,6 +1,6 @@
 [project]
 name = "selitys"
-version = "3.1.0"
+version = "3.2.0"
 description = "A developer onboarding tool that explains backend codebases"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -8,8 +8,8 @@ dependencies = [
     "typer>=0.9.0",
     "rich>=13.0.0",
     "watchfiles>=0.21.0",
-    "tree-sitter>=0.22.0",
-    "tree-sitter-languages>=1.10.2",
+    "tree-sitter>=0.21.3,<0.22",
+    "tree-sitter-languages>=1.10.2,<2",
     "pathspec>=0.12.1",
 ]
 

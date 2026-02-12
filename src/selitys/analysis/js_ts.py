@@ -8,9 +8,13 @@ from typing import Iterable
 from selitys.analysis.model import Confidence, Evidence, Fact, FactBundle, FactKind
 from selitys.core.scanner import FileInfo, RepoStructure
 
+import warnings
+
 try:
-    from tree_sitter_languages import get_parser
-except Exception:  # pragma: no cover - optional dependency handling
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+        from tree_sitter_languages import get_parser
+except ImportError:  # tree-sitter-languages not installed
     get_parser = None
 
 
@@ -41,7 +45,7 @@ class JsTsAnalyzer:
                 continue
             try:
                 parser = self._select_parser(file_info)
-            except (TypeError, Exception):
+            except (TypeError, OSError):
                 continue
             if parser is None:
                 continue

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -76,8 +77,12 @@ _GH_PATTERN = re.compile(
 )
 
 
-def _resolve_repo_path(raw_path: str) -> Path:
-    """Resolve a local path or GitHub URL to a local directory."""
+def _resolve_repo_path(raw_path: str, github_token: str | None = None) -> Path:
+    """Resolve a local path or GitHub URL to a local directory.
+
+    For private repos, pass a GitHub personal access token via *github_token*
+    or set the ``GITHUB_TOKEN`` environment variable.
+    """
     match = _GH_PATTERN.match(raw_path.strip())
     if match:
         if raw_path in _clone_cache:
@@ -86,15 +91,26 @@ def _resolve_repo_path(raw_path: str) -> Path:
                 return p
 
         owner, repo_name = match.group(1), match.group(2)
+        token = github_token or os.environ.get("GITHUB_TOKEN")
+
+        # Build clone URL — inject token for private repos
+        clone_url = raw_path.strip()
+        if token:
+            clone_url = f"https://x-access-token:{token}@github.com/{owner}/{repo_name}.git"
+
         tmp = Path(tempfile.mkdtemp(prefix=f"selitys-{owner}-{repo_name}-"))
         try:
             subprocess.run(
-                ["git", "clone", "--depth", "1", raw_path.strip(), str(tmp / repo_name)],
+                ["git", "clone", "--depth", "1", clone_url, str(tmp / repo_name)],
                 check=True, capture_output=True, text=True, timeout=120,
             )
         except subprocess.CalledProcessError as e:
             shutil.rmtree(tmp, ignore_errors=True)
-            raise HTTPException(status_code=400, detail=f"Failed to clone repo: {e.stderr.strip()}")
+            detail = e.stderr.strip()
+            # Don't leak token in error messages
+            if token:
+                detail = detail.replace(token, "***")
+            raise HTTPException(status_code=400, detail=f"Failed to clone repo: {detail}")
         except subprocess.TimeoutExpired:
             shutil.rmtree(tmp, ignore_errors=True)
             raise HTTPException(status_code=408, detail="Clone timed out (120s). Repo may be too large.")
@@ -113,7 +129,7 @@ def _resolve_repo_path(raw_path: str) -> Path:
 
 def _run_scan_and_analysis(req: AnalyzeRequest | AskRequest):
     """Scan + analyze a repo. Returns (structure, analysis)."""
-    repo = _resolve_repo_path(req.repo_path)
+    repo = _resolve_repo_path(req.repo_path, getattr(req, "github_token", None))
     if not repo.is_dir():
         raise HTTPException(status_code=400, detail=f"Not a valid directory: {req.repo_path}")
 

@@ -12,3 +12,5 @@ services:
         sync: false
       - key: SELITYS_MODEL
         sync: false
+      - key: GITHUB_TOKEN
+        sync: false

@@ -9,15 +9,16 @@ from pydantic import BaseModel, Field
 
 
 class AnalyzeRequest(BaseModel):
-    repo_path: str = Field(..., description="Absolute path to the repository to analyze")
+    repo_path: str = Field(..., description="Absolute path or GitHub URL to analyze")
     max_file_size: int = Field(2_000_000, description="Skip files larger than this (bytes)")
     respect_gitignore: bool = Field(True, description="Respect .gitignore rules")
     include_patterns: list[str] | None = Field(None, description="Glob patterns to include")
     exclude_patterns: list[str] | None = Field(None, description="Glob patterns to exclude")
+    github_token: str | None = Field(None, description="GitHub PAT for private repos (or set GITHUB_TOKEN env var)")
 
 
 class AskRequest(BaseModel):
-    repo_path: str = Field(..., description="Absolute path to the repository to query")
+    repo_path: str = Field(..., description="Absolute path or GitHub URL to query")
     question: str = Field(..., description="Question about the codebase")
     use_llm: bool = Field(False, description="Use LLM for richer answers")
     api_key: str | None = Field(None, description="API key for LLM provider")
@@ -25,6 +26,7 @@ class AskRequest(BaseModel):
     model: str | None = Field(None, description="Model name to use")
     max_file_size: int = Field(2_000_000, description="Skip files larger than this (bytes)")
     respect_gitignore: bool = Field(True, description="Respect .gitignore rules")
+    github_token: str | None = Field(None, description="GitHub PAT for private repos (or set GITHUB_TOKEN env var)")
 
 
 # ── Response models ─────────────────────────────────────────────
