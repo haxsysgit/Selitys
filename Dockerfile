@@ -30,4 +30,5 @@ COPY .env.example .env
 EXPOSE 8000
 
 # Serve frontend static files from FastAPI + API
-CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Render sets $PORT dynamically; fall back to 8000 locally
+CMD uvicorn backend.app:app --host 0.0.0.0 --port ${PORT:-8000}

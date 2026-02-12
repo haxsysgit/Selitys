@@ -221,6 +221,12 @@ def _analysis_to_response(structure, analysis) -> AnalysisResponse:
 # ── Routes ──────────────────────────────────────────────────────
 
 
+@app.get("/api/health")
+async def health():
+    """Health check for Render / uptime monitors."""
+    return {"status": "ok", "version": __version__}
+
+
 @app.post("/api/analyze", response_model=AnalysisResponse)
 async def analyze(req: AnalyzeRequest):
     """Analyze a repository and return structured results."""
