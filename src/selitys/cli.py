@@ -303,6 +303,114 @@ def ask(
 
 
 @app.command()
+def tree(
+    repo_path: Path = typer.Argument(
+        ...,
+        help="Path to the repository to visualize",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+    max_file_size: int = typer.Option(
+        2_000_000,
+        "--max-file-size",
+        help="Skip files larger than this size in bytes (0 to disable)",
+    ),
+    respect_gitignore: bool = typer.Option(
+        True,
+        "--respect-gitignore/--no-respect-gitignore",
+        help="Respect .gitignore rules when scanning",
+    ),
+) -> None:
+    """Show dependency tree and architectural layers of a codebase."""
+    from rich.panel import Panel
+    from rich.tree import Tree as RichTree
+
+    max_size = None if max_file_size <= 0 else max_file_size
+    scanner = RepoScanner(repo_path, max_file_size_bytes=max_size, respect_gitignore=respect_gitignore)
+
+    with console.status("[bold green]Scanning repository..."):
+        structure = scanner.scan()
+
+    with console.status("[bold green]Analyzing codebase..."):
+        analyzer = Analyzer(structure)
+        analysis = analyzer.analyze()
+
+    graph = analysis.dependency_graph
+
+    if not graph.nodes:
+        console.print("[yellow]No internal dependencies detected.[/yellow]")
+        return
+
+    # Summary
+    console.print()
+    console.print(f"[bold]selitys tree[/bold] — {analysis.repo_name}")
+    console.print(f"[dim]{len(graph.nodes)} modules, {len(graph.edges)} dependencies[/dim]")
+    console.print()
+
+    # Architectural layers
+    layer_colors = {
+        "entry_point": "bold green",
+        "route": "bold cyan",
+        "service": "bold yellow",
+        "model": "bold magenta",
+        "config": "bold blue",
+        "module": "dim",
+        "test": "dim red",
+    }
+
+    root = RichTree(f"[bold]{analysis.repo_name}[/bold]")
+    for layer in graph.layers:
+        color = layer_colors.get(layer["type"], "dim")
+        branch = root.add(f"[{color}]{layer['name']}[/{color}] ({len(layer['files'])})")
+        for fpath in layer["files"]:
+            # Find node to show import counts
+            node = next((n for n in graph.nodes if n.path == fpath), None)
+            suffix = ""
+            if node:
+                parts = []
+                if node.imports_count:
+                    parts.append(f"→{node.imports_count}")
+                if node.imported_by_count:
+                    parts.append(f"←{node.imported_by_count}")
+                if parts:
+                    suffix = f" [dim]({', '.join(parts)})[/dim]"
+            branch.add(f"{fpath}{suffix}")
+
+    console.print(root)
+    console.print()
+
+    # Top dependencies (most imported)
+    top_imported = sorted(graph.nodes, key=lambda n: n.imported_by_count, reverse=True)[:8]
+    if top_imported and top_imported[0].imported_by_count > 0:
+        table = Table(title="Most Depended-On Modules")
+        table.add_column("Module", style="cyan")
+        table.add_column("Type", style="dim")
+        table.add_column("Imported By", justify="right", style="green")
+        table.add_column("Imports", justify="right", style="yellow")
+        for n in top_imported:
+            if n.imported_by_count == 0:
+                break
+            table.add_row(n.path, n.node_type, str(n.imported_by_count), str(n.imports_count))
+        console.print(table)
+        console.print()
+
+    # Dependency edges sample
+    console.print("[bold]Dependency Flow:[/bold]")
+    shown = set()
+    for layer in graph.layers:
+        for fpath in layer["files"][:3]:
+            deps = [e for e in graph.edges if e.source == fpath]
+            if deps and fpath not in shown:
+                shown.add(fpath)
+                targets = ", ".join(e.target.split("/")[-1] for e in deps[:4])
+                extra = f" +{len(deps) - 4} more" if len(deps) > 4 else ""
+                console.print(f"  [cyan]{fpath}[/cyan] → {targets}{extra}")
+    console.print()
+
+
+@app.command()
 def version() -> None:
     """Show the current version of selitys."""
     console.print(f"selitys version {__version__}")

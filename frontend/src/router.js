@@ -5,6 +5,7 @@ import RequestFlowView from './pages/RequestFlowView.vue'
 import FirstReadView from './pages/FirstReadView.vue'
 import ConfigView from './pages/ConfigView.vue'
 import AskView from './pages/AskView.vue'
+import TreeView from './pages/TreeView.vue'
 
 const routes = [
   { path: '/', name: 'overview', component: Overview },
@@ -12,6 +13,7 @@ const routes = [
   { path: '/request-flow', name: 'request-flow', component: RequestFlowView },
   { path: '/first-read', name: 'first-read', component: FirstReadView },
   { path: '/config', name: 'config', component: ConfigView },
+  { path: '/tree', name: 'tree', component: TreeView },
   { path: '/ask', name: 'ask', component: AskView },
 ]
 

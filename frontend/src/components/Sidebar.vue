@@ -13,6 +13,7 @@ const navItems = [
     { name: 'request-flow', icon: '→', label: 'Request Flow', to: '/request-flow' },
     { name: 'first-read', icon: '☰', label: 'First Read', to: '/first-read' },
     { name: 'config', icon: '⚙', label: 'Config', to: '/config' },
+    { name: 'tree', icon: '⌥', label: 'Tree', to: '/tree' },
   ]},
   { label: 'INTERACT', items: [
     { name: 'ask', icon: '?', label: 'Ask', to: '/ask' },

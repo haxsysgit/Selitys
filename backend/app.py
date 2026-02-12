@@ -33,6 +33,10 @@ from backend.models import (  # noqa: E402
     AskKeywordResponse,
     AskLLMResponse,
     AskRequest,
+    DependencyEdgeOut,
+    DependencyGraphOut,
+    DependencyLayerOut,
+    DependencyNodeOut,
     EntryPointOut,
     ErrorResponse,
     FrameworkOut,
@@ -190,6 +194,27 @@ def _analysis_to_response(structure, analysis) -> AnalysisResponse:
         ],
         config_files=analysis.config.config_files,
         env_vars=analysis.config.env_vars,
+        dependency_graph=DependencyGraphOut(
+            nodes=[
+                DependencyNodeOut(
+                    path=n.path, label=n.label, node_type=n.node_type,
+                    subsystem=n.subsystem, imports_count=n.imports_count,
+                    imported_by_count=n.imported_by_count,
+                )
+                for n in analysis.dependency_graph.nodes
+            ],
+            edges=[
+                DependencyEdgeOut(
+                    source=e.source, target=e.target,
+                    import_name=e.import_name, edge_type=e.edge_type,
+                )
+                for e in analysis.dependency_graph.edges
+            ],
+            layers=[
+                DependencyLayerOut(name=l["name"], files=l["files"], type=l["type"])
+                for l in analysis.dependency_graph.layers
+            ],
+        ),
     )
 
 

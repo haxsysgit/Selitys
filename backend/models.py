@@ -75,6 +75,34 @@ class RequestFlowOut(BaseModel):
     touchpoints: list[str] = []
 
 
+class DependencyEdgeOut(BaseModel):
+    source: str
+    target: str
+    import_name: str
+    edge_type: str = "import"
+
+
+class DependencyNodeOut(BaseModel):
+    path: str
+    label: str
+    node_type: str = "module"
+    subsystem: str = ""
+    imports_count: int = 0
+    imported_by_count: int = 0
+
+
+class DependencyLayerOut(BaseModel):
+    name: str
+    files: list[str] = []
+    type: str = "module"
+
+
+class DependencyGraphOut(BaseModel):
+    nodes: list[DependencyNodeOut] = []
+    edges: list[DependencyEdgeOut] = []
+    layers: list[DependencyLayerOut] = []
+
+
 class AnalysisResponse(BaseModel):
     repo_name: str
     likely_purpose: str
@@ -94,6 +122,7 @@ class AnalysisResponse(BaseModel):
     skip_files: list[dict] = []
     config_files: list[str] = []
     env_vars: list[str] = []
+    dependency_graph: DependencyGraphOut = DependencyGraphOut()
 
 
 class AskKeywordResponse(BaseModel):

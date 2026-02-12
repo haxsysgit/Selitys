@@ -91,6 +91,34 @@ class RequestFlow:
 
 
 @dataclass
+class DependencyEdge:
+    """A dependency edge between two files."""
+    source: str
+    target: str
+    import_name: str
+    edge_type: str = "import"  # import, from_import
+
+
+@dataclass
+class DependencyNode:
+    """A node in the dependency graph with metadata."""
+    path: str
+    label: str
+    node_type: str = "module"  # module, package, entry_point, config, test
+    subsystem: str = ""
+    imports_count: int = 0
+    imported_by_count: int = 0
+
+
+@dataclass
+class DependencyGraph:
+    """Full dependency graph for the codebase."""
+    nodes: list[DependencyNode] = field(default_factory=list)
+    edges: list[DependencyEdge] = field(default_factory=list)
+    layers: list[dict] = field(default_factory=list)  # [{name, files}]
+
+
+@dataclass
 class AnalysisResult:
     """Complete analysis result for a repository."""
     repo_name: str
@@ -109,6 +137,7 @@ class AnalysisResult:
     request_flow: RequestFlow | None = None
     first_read_files: list[tuple[str, str, int]] = field(default_factory=list)
     skip_files: list[tuple[str, str]] = field(default_factory=list)
+    dependency_graph: DependencyGraph = field(default_factory=DependencyGraph)
     fact_bundle: FactBundle = field(default_factory=FactBundle)
 
 
@@ -139,6 +168,7 @@ class Analyzer:
         result.detailed_purpose = self._build_detailed_purpose(result)
         result.request_flow = self._trace_request_flow()
         result.first_read_files, result.skip_files = self._recommend_reading_order()
+        result.dependency_graph = self._build_dependency_graph(result)
         result.fact_bundle = FactPipeline().analyze(self.structure)
 
         return result
@@ -1210,3 +1240,192 @@ class Analyzer:
             lines.append("Background task processing appears to be supported.")
 
         return " ".join(lines) if lines else "Unable to determine detailed purpose from code analysis."
+
+    def _build_dependency_graph(self, result: AnalysisResult) -> DependencyGraph:
+        """Build a file-level dependency graph by parsing imports."""
+        import re
+
+        code_exts = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".rb", ".rs"}
+        code_files = [f for f in self.structure.files if f.extension in code_exts and f.content]
+
+        # Build a lookup: module path → relative file path
+        # e.g. "app.core.config" → "app/core/config.py"
+        path_lookup: dict[str, str] = {}
+        file_set: set[str] = set()
+        for f in code_files:
+            rel = str(f.relative_path)
+            file_set.add(rel)
+            # Python: app/core/config.py → app.core.config
+            if f.extension == ".py":
+                mod = rel.replace("/", ".").removesuffix(".py")
+                if mod.endswith(".__init__"):
+                    mod = mod.removesuffix(".__init__")
+                path_lookup[mod] = rel
+            # JS/TS: app/routes/index.ts → app/routes/index
+            elif f.extension in {".js", ".ts", ".jsx", ".tsx"}:
+                stem = rel
+                for ext in (".tsx", ".ts", ".jsx", ".js"):
+                    if stem.endswith(ext):
+                        stem = stem.removesuffix(ext)
+                        break
+                path_lookup[stem] = rel
+                # Also store with ./prefix variants
+                path_lookup["./" + stem] = rel
+
+        edges: list[DependencyEdge] = []
+        imports_out: dict[str, int] = {}
+        imports_in: dict[str, int] = {}
+
+        for f in code_files:
+            src = str(f.relative_path)
+            src_dir = str(f.relative_path.parent)
+
+            if f.extension == ".py":
+                # Match: from app.core.config import Settings
+                for m in re.finditer(r'^from\s+([\w.]+)\s+import', f.content, re.MULTILINE):
+                    mod = m.group(1)
+                    target = self._resolve_py_import(mod, src_dir, path_lookup)
+                    if target and target != src:
+                        edges.append(DependencyEdge(src, target, mod, "from_import"))
+                        imports_out[src] = imports_out.get(src, 0) + 1
+                        imports_in[target] = imports_in.get(target, 0) + 1
+                # Match: import app.core.config
+                for m in re.finditer(r'^import\s+([\w.]+)', f.content, re.MULTILINE):
+                    mod = m.group(1)
+                    target = self._resolve_py_import(mod, src_dir, path_lookup)
+                    if target and target != src:
+                        edges.append(DependencyEdge(src, target, mod, "import"))
+                        imports_out[src] = imports_out.get(src, 0) + 1
+                        imports_in[target] = imports_in.get(target, 0) + 1
+
+            elif f.extension in {".js", ".ts", ".jsx", ".tsx"}:
+                # Match: import X from './path' or require('./path')
+                for m in re.finditer(r"""(?:from|require\()\s*['"]([^'"]+)['"]""", f.content):
+                    imp = m.group(1)
+                    if not imp.startswith("."):
+                        continue  # skip node_modules
+                    target = self._resolve_js_import(imp, src_dir, path_lookup, file_set)
+                    if target and target != src:
+                        edges.append(DependencyEdge(src, target, imp, "import"))
+                        imports_out[src] = imports_out.get(src, 0) + 1
+                        imports_in[target] = imports_in.get(target, 0) + 1
+
+        # Deduplicate edges
+        seen_edges: set[tuple[str, str]] = set()
+        unique_edges: list[DependencyEdge] = []
+        for e in edges:
+            key = (e.source, e.target)
+            if key not in seen_edges:
+                unique_edges.append(e)
+                seen_edges.add(key)
+
+        # Build nodes
+        entry_paths = {ep.path for ep in result.entry_points}
+        config_paths = set(result.config.config_files)
+        sub_map = {}
+        for s in result.subsystems:
+            for kf in s.key_files:
+                sub_map[kf] = s.name
+
+        # Only include files that participate in the graph
+        participating = set()
+        for e in unique_edges:
+            participating.add(e.source)
+            participating.add(e.target)
+
+        nodes: list[DependencyNode] = []
+        for rel in sorted(participating):
+            ntype = "module"
+            if rel in entry_paths:
+                ntype = "entry_point"
+            elif rel in config_paths:
+                ntype = "config"
+            elif "test" in rel.lower() or "spec" in rel.lower():
+                ntype = "test"
+            elif "model" in rel.lower() or "schema" in rel.lower():
+                ntype = "model"
+            elif "route" in rel.lower() or "controller" in rel.lower():
+                ntype = "route"
+            elif "service" in rel.lower() or "usecase" in rel.lower():
+                ntype = "service"
+
+            label = Path(rel).stem
+            nodes.append(DependencyNode(
+                path=rel,
+                label=label,
+                node_type=ntype,
+                subsystem=sub_map.get(rel, ""),
+                imports_count=imports_out.get(rel, 0),
+                imported_by_count=imports_in.get(rel, 0),
+            ))
+
+        # Detect architectural layers
+        layers = self._detect_layers(nodes, unique_edges)
+
+        return DependencyGraph(nodes=nodes, edges=unique_edges, layers=layers)
+
+    def _resolve_py_import(self, module: str, src_dir: str, lookup: dict[str, str]) -> str | None:
+        """Resolve a Python import to a file path."""
+        # Direct match
+        if module in lookup:
+            return lookup[module]
+        # Try relative to source dir
+        if src_dir != ".":
+            relative = f"{src_dir.replace('/', '.')}.{module}"
+            if relative in lookup:
+                return lookup[relative]
+        # Try partial match (e.g. "config" → "app.core.config")
+        for mod_path, file_path in lookup.items():
+            if mod_path.endswith(f".{module}") or mod_path == module:
+                return file_path
+        return None
+
+    def _resolve_js_import(self, imp: str, src_dir: str, lookup: dict[str, str], file_set: set[str]) -> str | None:
+        """Resolve a JS/TS relative import to a file path."""
+        import posixpath
+        resolved = posixpath.normpath(posixpath.join(src_dir, imp))
+        # Try direct
+        if resolved in lookup:
+            return lookup[resolved]
+        # Try with extensions
+        for ext in (".ts", ".js", ".tsx", ".jsx"):
+            candidate = resolved + ext
+            if candidate in file_set:
+                return candidate
+        # Try /index
+        for ext in (".ts", ".js", ".tsx", ".jsx"):
+            candidate = resolved + "/index" + ext
+            if candidate in file_set:
+                return candidate
+        return None
+
+    def _detect_layers(self, nodes: list[DependencyNode], edges: list[DependencyEdge]) -> list[dict]:
+        """Detect architectural layers from node types."""
+        layer_order = ["entry_point", "route", "service", "model", "config"]
+        layer_names = {
+            "entry_point": "Entry Points",
+            "route": "Routes / Controllers",
+            "service": "Services / Business Logic",
+            "model": "Models / Schemas",
+            "config": "Configuration",
+            "module": "Other Modules",
+            "test": "Tests",
+        }
+        layers: list[dict] = []
+        for ltype in layer_order:
+            files = [n.path for n in nodes if n.node_type == ltype]
+            if files:
+                layers.append({"name": layer_names.get(ltype, ltype), "files": files, "type": ltype})
+
+        # Add "other" bucket
+        categorized = {n.path for n in nodes if n.node_type in layer_order}
+        other = [n.path for n in nodes if n.path not in categorized and n.node_type != "test"]
+        if other:
+            layers.append({"name": "Other Modules", "files": other, "type": "module"})
+
+        # Tests last
+        tests = [n.path for n in nodes if n.node_type == "test"]
+        if tests:
+            layers.append({"name": "Tests", "files": tests, "type": "test"})
+
+        return layers
