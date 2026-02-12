@@ -1,111 +1,137 @@
 # Selitys
 
-A local CLI tool that explains backend codebases to developers.
+A CLI tool that explains backend codebases to developers. Point it at a repository and get structured explanations of the architecture, request flow, risks, and more — like a senior engineer onboarding a new teammate.
 
-The name "selitys" is Finnish for "explanation" or "clarification".
-
----
-
-## What It Does
-
-selitys analyzes a local repository and generates structured markdown explanations that help you understand:
-
-- What the system does and its domain entities
-- How requests flow through the application
-- What architectural patterns are used
-- Which areas are risky or fragile
-- What files to read first as a new developer
-
-It behaves like a senior engineer onboarding a new teammate.
+The name "selitys" is Finnish for "explanation".
 
 ---
 
 ## Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/yourusername/selitys.git
 cd selitys
-
-# Install with uv
 uv sync
 ```
 
----
-
-## Usage
+To enable LLM-powered Q&A (optional):
 
 ```bash
-# Analyze a repository
-selitys explain /path/to/your/backend -o ./output
-
-# Include JSON output
-selitys explain /path/to/your/backend -o ./output --json
-
-# Include only Python files and exclude tests
-selitys explain /path/to/your/backend -o ./output --include "*.py" --exclude "tests/**"
-
-# Check version
-selitys version
+uv sync --extra llm
+cp .env.example .env
+# Edit .env with your API key
 ```
 
-This generates five markdown files in the output directory:
+---
+
+## Quick Start
+
+```bash
+# Generate markdown docs for a codebase
+selitys explain /path/to/repo -o ./output
+
+# Ask a question about a codebase
+selitys ask /path/to/repo "what frameworks are used?"
+
+# Ask with LLM for richer answers
+selitys ask /path/to/repo "explain the auth flow" --llm
+```
+
+---
+
+## Commands
+
+### `selitys explain`
+
+Analyzes a repository and generates structured markdown documentation.
+
+```bash
+selitys explain /path/to/repo -o ./output
+```
+
+**Output files:**
 
 | File | Description |
 |------|-------------|
-| `selitys-overview.md` | System purpose, tech stack, domain entities, API endpoints |
-| `selitys-architecture.md` | Subsystems, patterns, coupling, risk areas |
+| `selitys-overview.md` | System purpose, tech stack, domain entities, API surface |
+| `selitys-architecture.md` | Subsystems, patterns, coupling, Mermaid dependency graph, risk areas |
 | `selitys-request-flow.md` | Step-by-step request walkthrough with code insights |
 | `selitys-first-read.md` | Recommended reading order for new developers |
-| `selitys-config.md` | Configuration files and environment variables |
+| `selitys-config.md` | Configuration files, environment variables, setup guide |
 
-Optional:
-- `selitys-analysis.json` when `--json` is used
+**Options:**
 
-## Scanning Options
+| Flag | Description |
+|------|-------------|
+| `-o, --output` | Output directory (default: `./selitys-output`) |
+| `--json` | Also generate `selitys-analysis.json` for machine consumption |
+| `--watch` | Re-run analysis automatically when source files change |
+| `--include` | Only scan files matching these glob patterns |
+| `--exclude` | Skip files matching these glob patterns |
+| `--max-file-size` | Skip files larger than this (bytes, default: 2MB) |
+| `--respect-gitignore` | Honor `.gitignore` rules (default: on) |
 
-- `--respect-gitignore/--no-respect-gitignore`: honor `.gitignore` rules
-- `--max-file-size`: skip large files (0 disables)
-- `--include`: limit scanning to matching glob patterns
-- `--exclude`: skip matching glob patterns
+### `selitys ask`
+
+Ask a question about a codebase and get an instant answer.
+
+```bash
+# Keyword-based (instant, no setup needed)
+selitys ask /path/to/repo "what are the security risks?"
+
+# LLM-powered (requires API key)
+selitys ask /path/to/repo "how does authentication work?" --llm
+```
+
+Without `--llm`, questions are matched to topics using keyword analysis. Supported topics: purpose, frameworks, entry points, configuration, risks, architecture, request flow, languages, dependencies, entities, and file structure.
+
+With `--llm`, your question and the full analysis context are sent to an LLM for a detailed, natural-language answer.
+
+**LLM options:**
+
+| Flag | Env var | Description |
+|------|---------|-------------|
+| `--api-key` | `SELITYS_API_KEY` | API key for the LLM provider |
+| `--base-url` | `SELITYS_BASE_URL` | Base URL for an OpenAI-compatible API |
+| `--model` | `SELITYS_MODEL` | Model name (e.g. `llama-3.3-70b-versatile`) |
+
+See `.env.example` for provider-specific configuration.
+
+### `selitys version`
+
+Print the current version.
 
 ---
 
-## Target Users
+## Supported Languages & Frameworks
 
-- Backend engineers joining an unfamiliar codebase
-- Solo developers returning to an old project
-- Teams onboarding new hires
-- Reviewers assessing system quality
+| Language | Frameworks |
+|----------|------------|
+| Python | FastAPI, Flask, Django, SQLAlchemy, Alembic, Pydantic, Celery, pytest |
+| TypeScript / JavaScript | Express, Next.js, NestJS, React, Vue, Angular, Prisma, Sequelize |
+
+Python support is the most mature. TypeScript/JavaScript detection covers frameworks, entry points, config files, and environment variables.
+
+---
+
+## Who It's For
+
+- **New team members** joining an unfamiliar codebase
+- **Solo developers** returning to an old project
+- **Tech leads** onboarding new hires
+- **Reviewers** assessing system quality before a code review
 
 ---
 
 ## Design Principles
 
-- **Read-only**: Never modifies the analyzed repository
-- **Repo-specific**: Tailored explanations, not generic advice
-- **Opinionated but careful**: Uses cautious language for inferences
-- **Structured output**: Deterministic markdown, not prose
-- **Evidence-first**: Non-obvious statements include evidence references or uncertainty notes
+- **Read-only** — never modifies the analyzed repository
+- **Repo-specific** — tailored explanations, not generic advice
+- **Evidence-first** — non-obvious claims include file references or uncertainty notes
+- **Structured output** — deterministic markdown, not free-form prose
+- **Lightweight** — no heavy dependencies; LLM support is optional
 
 ---
-
-## Supported Frameworks
-
-selitys works best with Python backend projects using:
-
-- FastAPI / Flask / Django
-- SQLAlchemy
-- Alembic
-- Pydantic
-
-JS and TS support is available but less mature than Python.
-
----
-
-## Spec
-
-The current spec lives in `selitys-v2-spec.md`.
 
 ## JSON Schema
 
