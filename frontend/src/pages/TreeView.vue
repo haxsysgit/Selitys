@@ -1,5 +1,5 @@
 <script setup>
-import { inject, ref, computed, onMounted, nextTick, watch } from 'vue'
+import { inject, ref, computed } from 'vue'
 
 const analysis = inject('analysis')
 const selected = ref(null)
@@ -14,14 +14,15 @@ const nodeMap = computed(() => {
 })
 
 // Layout constants
-const NODE_W = 150
-const NODE_H = 36
-const LAYER_GAP = 90
-const NODE_GAP = 16
+const NODE_W = 140
+const NODE_H = 34
+const LAYER_GAP = 80
+const NODE_GAP = 12
+const ROW_GAP = 8
 const PAD_X = 40
 const PAD_TOP = 60
+const MAX_PER_ROW = 6
 
-// Colors per type
 const typeStyle = {
   entry_point: { fill: '#22c55e', bg: 'rgba(34,197,94,0.12)', text: '#22c55e', border: 'rgba(34,197,94,0.35)' },
   route:       { fill: '#22d3ee', bg: 'rgba(34,211,238,0.12)', text: '#22d3ee', border: 'rgba(34,211,238,0.35)' },
@@ -32,7 +33,7 @@ const typeStyle = {
   test:        { fill: '#f87171', bg: 'rgba(248,113,113,0.08)', text: '#f87171', border: 'rgba(248,113,113,0.2)' },
 }
 
-// Compute positioned layout
+// Compute positioned layout — wraps long rows
 const layout = computed(() => {
   const layers = graph.value.layers
   if (!layers.length) return { nodes: {}, width: 0, height: 0, layerY: [] }
@@ -43,57 +44,65 @@ const layout = computed(() => {
   let maxW = 0
 
   for (const layer of layers) {
-    const count = layer.files.length
-    const rowW = count * NODE_W + (count - 1) * NODE_GAP + PAD_X * 2
-    if (rowW > maxW) maxW = rowW
+    const files = layer.files
+    const rows = Math.ceil(files.length / MAX_PER_ROW)
     layerY.push({ y, name: layer.name, type: layer.type })
 
-    for (let i = 0; i < count; i++) {
-      const x = PAD_X + i * (NODE_W + NODE_GAP)
-      positions[layer.files[i]] = { x, y, layer: layer.type }
+    for (let i = 0; i < files.length; i++) {
+      const row = Math.floor(i / MAX_PER_ROW)
+      const col = i % MAX_PER_ROW
+      const x = PAD_X + col * (NODE_W + NODE_GAP)
+      positions[files[i]] = { x, y: y + row * (NODE_H + ROW_GAP), layer: layer.type }
     }
-    y += NODE_H + LAYER_GAP
+
+    const colsInRow = Math.min(files.length, MAX_PER_ROW)
+    const rowW = colsInRow * NODE_W + (colsInRow - 1) * NODE_GAP + PAD_X * 2
+    if (rowW > maxW) maxW = rowW
+    y += rows * (NODE_H + ROW_GAP) - ROW_GAP + LAYER_GAP
   }
 
   return { nodes: positions, width: Math.max(maxW, 600), height: y + 20, layerY }
 })
 
-// SVG edge paths
+// Pre-compute edge paths once (no per-frame work)
 const edgePaths = computed(() => {
   const pos = layout.value.nodes
-  return graph.value.edges
-    .filter(e => pos[e.source] && pos[e.target])
-    .map(e => {
-      const s = pos[e.source]
-      const t = pos[e.target]
-      const sx = s.x + NODE_W / 2
-      const sy = s.y + NODE_H
-      const tx = t.x + NODE_W / 2
-      const ty = t.y
-      const cy1 = sy + (ty - sy) * 0.4
-      const cy2 = sy + (ty - sy) * 0.6
-      return {
-        d: `M${sx},${sy} C${sx},${cy1} ${tx},${cy2} ${tx},${ty}`,
-        source: e.source,
-        target: e.target,
-      }
+  const result = []
+  for (const e of graph.value.edges) {
+    const s = pos[e.source], t = pos[e.target]
+    if (!s || !t) continue
+    const sx = s.x + NODE_W / 2, sy = s.y + NODE_H
+    const tx = t.x + NODE_W / 2, ty = t.y
+    result.push({
+      d: `M${sx},${sy} C${sx},${sy + (ty - sy) * 0.4} ${tx},${sy + (ty - sy) * 0.6} ${tx},${ty}`,
+      source: e.source,
+      target: e.target,
     })
+  }
+  return result
 })
 
-function isHighlighted(edge) {
-  if (!selected.value) return false
-  return edge.source === selected.value || edge.target === selected.value
-}
+// Pre-compute connected set for O(1) dimming lookups
+const connectedSet = computed(() => {
+  const s = new Set()
+  if (!selected.value) return s
+  s.add(selected.value)
+  for (const e of graph.value.edges) {
+    if (e.source === selected.value) s.add(e.target)
+    if (e.target === selected.value) s.add(e.source)
+  }
+  return s
+})
 
-function isDimmed(path) {
-  if (!selected.value) return false
-  if (path === selected.value) return false
-  const connected = graph.value.edges.some(
-    e => (e.source === selected.value && e.target === path) ||
-         (e.target === selected.value && e.source === path)
-  )
-  return !connected
-}
+const highlightedEdges = computed(() => {
+  if (!selected.value) return new Set()
+  const s = new Set()
+  for (let i = 0; i < edgePaths.value.length; i++) {
+    const e = edgePaths.value[i]
+    if (e.source === selected.value || e.target === selected.value) s.add(i)
+  }
+  return s
+})
 
 function selectNode(path) {
   selected.value = selected.value === path ? null : path
@@ -112,6 +121,11 @@ const inEdges = computed(() => {
 function shortName(path) {
   const parts = path.split('/')
   return parts.length > 1 ? parts.slice(-1)[0] : path
+}
+
+function nodeStyle(path) {
+  const t = nodeMap.value[path]?.node_type || 'module'
+  return typeStyle[t] || typeStyle.module
 }
 </script>
 
@@ -160,28 +174,30 @@ function shortName(path) {
               />
             </g>
 
-            <!-- Edges -->
+            <!-- Edges (dimmed first, highlighted on top) -->
             <path
               v-for="(edge, i) in edgePaths"
               :key="'e' + i"
               :d="edge.d"
               fill="none"
-              :stroke="isHighlighted(edge) ? (edge.source === selected ? '#22d3ee' : '#22c55e') : 'rgba(148,163,184,0.15)'"
-              :stroke-width="isHighlighted(edge) ? 2 : 1"
-              :opacity="selected && !isHighlighted(edge) ? 0.3 : 1"
-              class="transition-all duration-300"
+              :stroke="highlightedEdges.has(i)
+                ? (edge.source === selected ? '#22d3ee' : '#22c55e')
+                : 'rgba(148,163,184,0.12)'"
+              :stroke-width="highlightedEdges.has(i) ? 2 : 0.8"
+              :opacity="selected && !highlightedEdges.has(i) ? 0.15 : 1"
             />
 
-            <!-- Arrow markers on highlighted edges -->
-            <circle
-              v-for="(edge, i) in edgePaths.filter(e => isHighlighted(e))"
-              :key="'dot' + i"
-              :cx="layout.nodes[edge.target] ? layout.nodes[edge.target].x + NODE_W / 2 : 0"
-              :cy="layout.nodes[edge.target] ? layout.nodes[edge.target].y - 3 : 0"
-              r="3"
-              :fill="edge.source === selected ? '#22d3ee' : '#22c55e'"
-              class="transition-all duration-300"
-            />
+            <!-- Arrow dots on highlighted edges -->
+            <template v-if="selected">
+              <circle
+                v-for="i in highlightedEdges"
+                :key="'dot' + i"
+                :cx="layout.nodes[edgePaths[i].target]?.x + NODE_W / 2"
+                :cy="layout.nodes[edgePaths[i].target]?.y - 3"
+                r="3"
+                :fill="edgePaths[i].source === selected ? '#22d3ee' : '#22c55e'"
+              />
+            </template>
 
             <!-- Nodes -->
             <g
@@ -190,32 +206,28 @@ function shortName(path) {
               :transform="`translate(${node.x}, ${node.y})`"
               @click="selectNode(path)"
               class="cursor-pointer"
-              :opacity="isDimmed(path) ? 0.25 : 1"
-              style="transition: opacity 0.3s"
+              :opacity="selected && !connectedSet.has(path) ? 0.2 : 1"
             >
               <rect
                 :width="NODE_W"
                 :height="NODE_H"
                 rx="8"
-                :fill="typeStyle[nodeMap[path]?.node_type || 'module']?.bg"
-                :stroke="selected === path
-                  ? typeStyle[nodeMap[path]?.node_type || 'module']?.fill
-                  : typeStyle[nodeMap[path]?.node_type || 'module']?.border"
+                :fill="nodeStyle(path).bg"
+                :stroke="selected === path ? nodeStyle(path).fill : nodeStyle(path).border"
                 :stroke-width="selected === path ? 2 : 1"
-                class="transition-all duration-200"
               />
               <text
                 :x="NODE_W / 2"
                 :y="NODE_H / 2 + 1"
                 text-anchor="middle"
                 dominant-baseline="middle"
-                :fill="typeStyle[nodeMap[path]?.node_type || 'module']?.text"
-                font-size="11"
+                :fill="nodeStyle(path).text"
+                font-size="10"
                 font-family="'JetBrains Mono', monospace"
                 font-weight="500"
-              >{{ shortName(path).length > 16 ? shortName(path).slice(0, 14) + '…' : shortName(path) }}</text>
+              >{{ shortName(path).length > 14 ? shortName(path).slice(0, 12) + '…' : shortName(path) }}</text>
 
-              <!-- Import count badges -->
+              <!-- Import count badge -->
               <g v-if="nodeMap[path]?.imported_by_count > 0">
                 <circle :cx="NODE_W - 4" :cy="4" r="8" fill="rgba(34,197,94,0.2)" />
                 <text
