@@ -989,103 +989,137 @@ class Analyzer:
         first_read: list[tuple[str, str, int]] = []
         skip_files: list[tuple[str, str]] = []
         priority = 1
+        code_exts = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".rb", ".rs"}
+        added_paths: set[str] = set()
 
-        # Priority 1: Main entry point
-        for f in self.structure.files:
-            if f.relative_path.name == "main.py" and len(f.relative_path.parts) <= 2:
-                first_read.append((
-                    str(f.relative_path),
-                    "Application entry point - start here to understand how the app boots",
-                    priority,
-                ))
+        def _add(path_str: str, reason: str) -> None:
+            nonlocal priority
+            if path_str not in added_paths:
+                first_read.append((path_str, reason, priority))
+                added_paths.add(path_str)
                 priority += 1
+
+        # Priority 1: Main entry point (supports multiple languages)
+        entry_names = {
+            "main.py", "app.py", "server.py", "index.py",
+            "main.ts", "index.ts", "server.ts", "app.ts",
+            "main.js", "index.js", "server.js", "app.js",
+            "main.go", "cmd/main.go",
+        }
+        for f in self.structure.files:
+            if f.relative_path.name in entry_names and len(f.relative_path.parts) <= 2:
+                _add(str(f.relative_path),
+                     "Application entry point — start here to understand how the app boots")
                 break
 
-        # Priority 2: Config file
+        # Priority 2: Config file (exclude alembic/env.py and similar generated configs)
+        config_names = {"config.py", "config.ts", "config.js", "settings.py"}
+        _config_skip_dirs = {"alembic", "migrations", "node_modules", "dist", ".venv"}
         for f in self.structure.files:
-            if "config" in f.relative_path.name.lower() and f.extension == ".py":
-                first_read.append((
-                    str(f.relative_path),
-                    "Configuration - shows environment variables and app settings",
-                    priority,
-                ))
-                priority += 1
+            name_lower = f.relative_path.name.lower()
+            if any(part in _config_skip_dirs for part in f.relative_path.parts):
+                continue
+            if (name_lower in config_names or
+                ("config" in name_lower and f.extension in code_exts)) \
+                    and "__init__" not in name_lower:
+                _add(str(f.relative_path),
+                     "Configuration — shows environment variables and app settings")
                 break
 
-        # Priority 3: Models (data structure)
+        # Priority 3: Core domain model (prefer names that match the repo purpose,
+        # exclude utility models like audit/log/migration)
+        _utility_keywords = {"audit", "log", "migration", "base", "mixin", "abstract", "util", "helper"}
         model_files = [
             f for f in self.structure.files
-            if "model" in str(f.relative_path).lower()
-            and f.extension == ".py"
+            if ("model" in str(f.relative_path).lower()
+                or "schema" in str(f.relative_path).lower()
+                or "entity" in str(f.relative_path).lower())
+            and f.extension in code_exts
             and "__init__" not in f.relative_path.name
-            and f.line_count > 10
+            and f.line_count > 5
         ]
-        if model_files:
-            model_file = max(model_files, key=lambda x: x.line_count)
-            first_read.append((
-                str(model_file.relative_path),
-                "Data models - understand what entities exist in the system",
-                priority,
-            ))
-            priority += 1
+        # Separate core models from utility models
+        core_models = [
+            f for f in model_files
+            if not any(kw in f.relative_path.stem.lower() for kw in _utility_keywords)
+        ]
+        chosen_models = core_models if core_models else model_files
+        if chosen_models:
+            model_file = max(chosen_models, key=lambda x: x.line_count)
+            _add(str(model_file.relative_path),
+                 "Core data model — understand the primary domain entities")
 
-        # Priority 4: A route file (API surface)
+        # Priority 4: A route / controller file
         route_files = [
             f for f in self.structure.files
-            if "route" in str(f.relative_path).lower()
-            and f.extension == ".py"
+            if ("route" in str(f.relative_path).lower()
+                or "controller" in str(f.relative_path).lower()
+                or "handler" in str(f.relative_path).lower()
+                or "view" in str(f.relative_path).lower())
+            and f.extension in code_exts
             and "__init__" not in f.relative_path.name
         ]
         if route_files:
             route_file = max(route_files, key=lambda x: x.line_count)
-            first_read.append((
-                str(route_file.relative_path),
-                "API routes - see what endpoints are exposed and how requests are handled",
-                priority,
-            ))
-            priority += 1
+            _add(str(route_file.relative_path),
+                 "API routes — see what endpoints are exposed and how requests are handled")
 
-        # Priority 5: A service file (business logic)
+        # Priority 5: A service / usecase file
         service_files = [
             f for f in self.structure.files
-            if "service" in str(f.relative_path).lower()
-            and f.extension == ".py"
+            if ("service" in str(f.relative_path).lower()
+                or "usecase" in str(f.relative_path).lower()
+                or "interactor" in str(f.relative_path).lower())
+            and f.extension in code_exts
             and "__init__" not in f.relative_path.name
         ]
         if service_files:
             service_file = max(service_files, key=lambda x: x.line_count)
-            first_read.append((
-                str(service_file.relative_path),
-                "Service layer - where the core business logic lives",
-                priority,
-            ))
-            priority += 1
+            _add(str(service_file.relative_path),
+                 "Service layer — where the core business logic lives")
+
+        # Priority 6: README if present
+        for f in self.structure.files:
+            if f.relative_path.name.lower() in ("readme.md", "readme.rst", "readme.txt", "readme"):
+                _add(str(f.relative_path),
+                     "Project documentation — high-level overview and setup instructions")
+                break
 
         # Files to skip initially
         skip_patterns = [
-            ("alembic/versions/", "Migration files - generated, read only when debugging migrations"),
-            ("__pycache__/", "Python cache - auto-generated"),
-            ("conftest.py", "Test fixtures - read when writing tests"),
-            (".lock", "Lock files - dependency management, not code"),
+            ("alembic/versions/", "Migration files — generated, read only when debugging"),
+            ("migrations/", "Migration files — generated, read only when debugging"),
+            ("__pycache__/", "Python cache — auto-generated"),
+            ("node_modules/", "Dependencies — auto-installed"),
+            (".lock", "Lock files — dependency management, not code"),
+            (".min.", "Minified files — not human-readable"),
+            ("dist/", "Build output — generated"),
+            ("conftest.py", "Test fixtures — read when writing tests"),
         ]
 
+        skip_path_set: set[str] = set()
         for f in self.structure.files:
             path_str = str(f.relative_path)
             for pattern, reason in skip_patterns:
                 if pattern in path_str or path_str.endswith(pattern):
-                    skip_files.append((path_str, reason))
+                    if path_str not in skip_path_set:
+                        skip_files.append((path_str, reason))
+                        skip_path_set.add(path_str)
                     break
 
         # Also skip test files initially
         for f in self.structure.files:
-            if "test" in str(f.relative_path).lower() and f.extension == ".py":
-                if (str(f.relative_path), "Test files - read when you need to understand expected behavior") not in skip_files:
-                    skip_files.append((
-                        str(f.relative_path),
-                        "Test files - read when you need to understand expected behavior",
-                    ))
+            path_str = str(f.relative_path)
+            if path_str in skip_path_set:
+                continue
+            if ("test" in path_str.lower() or "spec" in path_str.lower()) and f.extension in code_exts:
+                skip_files.append((
+                    path_str,
+                    "Test files — read when you need to understand expected behavior",
+                ))
+                skip_path_set.add(path_str)
 
-        return first_read, skip_files[:10]
+        return first_read, skip_files[:15]
 
     def _extract_domain_entities(self) -> list[str]:
         """Extract domain entities from model files."""
