@@ -17,6 +17,7 @@ load_dotenv(_project_root / ".env")
 # Ensure the src/ package is importable when running from the backend/ dir
 sys.path.insert(0, str(_project_root / "src"))
 
+from selitys import __version__  # noqa: E402
 from selitys.core.analyzer import Analyzer  # noqa: E402
 from selitys.core.qa import QuestionAnswerer  # noqa: E402
 from selitys.core.scanner import RepoScanner  # noqa: E402
@@ -40,7 +41,7 @@ from backend.models import (  # noqa: E402
 app = FastAPI(
     title="selitys API",
     description="Analyze backend codebases and ask questions about them",
-    version="3.0.0",
+    version=__version__,
 )
 
 app.add_middleware(
@@ -226,4 +227,4 @@ async def get_results(repo_path: str):
 @app.get("/api/health")
 async def health():
     """Health check."""
-    return {"status": "ok", "version": "3.0.0"}
+    return {"status": "ok", "version": __version__}
