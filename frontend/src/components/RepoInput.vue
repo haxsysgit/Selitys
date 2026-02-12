@@ -38,16 +38,16 @@ async function handleAnalyze() {
       </p>
       <form @submit.prevent="handleAnalyze" class="flex flex-col w-full gap-3">
         <div class="flex w-full gap-3">
-          <div class="flex-1 relative">
+          <div class="flex-1 flex items-center bg-bg-surface rounded-lg focus-within:ring-1 focus-within:ring-accent transition-all duration-200">
             <input
               v-model="repoPath"
               type="text"
               placeholder="/path/to/repo or https://github.com/user/repo"
-              :class="['w-full bg-bg-surface text-text-primary font-mono text-sm py-3 rounded-lg border-none outline-none placeholder:text-text-muted focus:ring-1 focus:ring-accent transition-all duration-200 pl-4', isGitHub ? 'pr-24' : 'pr-4']"
+              class="flex-1 min-w-0 bg-transparent text-text-primary font-mono text-sm py-3 pl-4 pr-2 border-none outline-none placeholder:text-text-muted"
             />
             <span
               v-if="isGitHub"
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-mono font-bold text-accent bg-accent/10 px-2 py-0.5 rounded"
+              class="shrink-0 mr-3 text-[11px] font-mono font-bold text-accent bg-accent/10 px-2 py-0.5 rounded"
             >GitHub</span>
           </div>
           <button
