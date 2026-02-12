@@ -43,7 +43,7 @@ async function handleAnalyze() {
               v-model="repoPath"
               type="text"
               placeholder="/path/to/repo or https://github.com/user/repo"
-              class="w-full bg-bg-surface text-text-primary font-mono text-sm px-4 py-3 rounded-lg border-none outline-none placeholder:text-text-muted focus:ring-1 focus:ring-accent transition-all duration-200"
+              :class="['w-full bg-bg-surface text-text-primary font-mono text-sm py-3 rounded-lg border-none outline-none placeholder:text-text-muted focus:ring-1 focus:ring-accent transition-all duration-200 pl-4', isGitHub ? 'pr-24' : 'pr-4']"
             />
             <span
               v-if="isGitHub"
