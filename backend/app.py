@@ -275,3 +275,20 @@ async def get_results(repo_path: str):
 async def health():
     """Health check."""
     return {"status": "ok", "version": __version__}
+
+
+# ── Static frontend serving (production) ─────────────────────────
+_frontend_dist = _project_root / "frontend" / "dist"
+if _frontend_dist.is_dir():
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import FileResponse
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve the Vue SPA — try static file first, fallback to index.html."""
+        file = _frontend_dist / full_path
+        if file.is_file():
+            return FileResponse(file)
+        return FileResponse(_frontend_dist / "index.html")
+
+    app.mount("/assets", StaticFiles(directory=_frontend_dist / "assets"), name="assets")

@@ -1,0 +1,10 @@
+services:
+  selitys:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - /tmp/selitys-clones:/tmp
+    restart: unless-stopped

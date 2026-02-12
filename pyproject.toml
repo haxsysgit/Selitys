@@ -1,6 +1,6 @@
 [project]
 name = "selitys"
-version = "2.4.0"
+version = "3.0.0"
 description = "A developer onboarding tool that explains backend codebases"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -11,7 +11,6 @@ dependencies = [
     "tree-sitter>=0.22.0",
     "tree-sitter-languages>=1.10.2",
     "pathspec>=0.12.1",
-    "fastapi[standard]>=0.129.0",
 ]
 
 [project.scripts]
@@ -22,9 +21,10 @@ llm = [
     "httpx>=0.28.1",
 ]
 backend = [
-    "fastapi>=0.115.0",
+    "fastapi[standard]>=0.115.0",
     "uvicorn[standard]>=0.34.0",
     "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
     "httpx>=0.28.1",
 ]
 
