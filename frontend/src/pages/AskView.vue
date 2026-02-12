@@ -1,6 +1,13 @@
 <script setup>
 import { ref, inject, nextTick } from 'vue'
+import { marked } from 'marked'
 import { askQuestion } from '../api.js'
+
+marked.setOptions({ breaks: true, gfm: true })
+
+function renderMd(text) {
+  return marked.parse(text || '')
+}
 
 const analysis = inject('analysis')
 const repoPath = inject('repoPath')
@@ -99,7 +106,7 @@ function scrollToBottom() {
             <div class="w-5 h-5 rounded bg-accent" />
             <span class="font-mono text-xs font-semibold text-accent">selitys</span>
           </div>
-          <p class="text-sm leading-relaxed whitespace-pre-wrap">{{ msg.content }}</p>
+          <div class="prose-chat text-sm leading-relaxed" v-html="renderMd(msg.content)"></div>
           <ul v-if="msg.details?.length" class="flex flex-col gap-1.5 mt-1">
             <li v-for="d in msg.details" :key="d" class="text-sm text-text-secondary">• {{ d }}</li>
           </ul>

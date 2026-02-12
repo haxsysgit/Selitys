@@ -30,3 +30,38 @@
     scrollbar-color: var(--color-bg-surface) transparent;
   }
 }
+
+/* Markdown prose styles for LLM chat output */
+.prose-chat p { margin: 0.5em 0; }
+.prose-chat p:first-child { margin-top: 0; }
+.prose-chat p:last-child { margin-bottom: 0; }
+.prose-chat ul, .prose-chat ol { margin: 0.5em 0; padding-left: 1.5em; }
+.prose-chat li { margin: 0.25em 0; color: var(--color-text-secondary); }
+.prose-chat li::marker { color: var(--color-accent); }
+.prose-chat strong { color: var(--color-text-primary); font-weight: 600; }
+.prose-chat code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-bg-surface);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  color: var(--color-accent);
+}
+.prose-chat pre {
+  background: var(--color-bg-surface);
+  border-radius: 8px;
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.prose-chat pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.85em;
+}
+.prose-chat h1, .prose-chat h2, .prose-chat h3 {
+  color: var(--color-text-primary);
+  margin: 0.75em 0 0.25em;
+  font-weight: 600;
+}
+.prose-chat a { color: var(--color-accent); text-decoration: underline; }
