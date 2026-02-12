@@ -27,6 +27,17 @@ export async function askQuestion(repoPath, question, { useLlm = false, apiKey, 
   return res.json()
 }
 
+export async function uploadZip(file) {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${BASE}/api/upload`, {
+    method: 'POST',
+    body: form,
+  })
+  if (!res.ok) throw new Error((await res.json()).detail || res.statusText)
+  return res.json()
+}
+
 export async function healthCheck() {
   const res = await fetch(`${BASE}/api/health`)
   return res.json()

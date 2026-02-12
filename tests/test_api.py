@@ -89,3 +89,43 @@ class TestAskEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert "summary" in data or "answer" in data
+
+
+class TestUploadEndpoint:
+    @pytest.fixture(autouse=True)
+    def check_fixture(self):
+        if not FIXTURE_REPO.exists():
+            pytest.skip("fixtures/test_backend missing")
+
+    def _make_zip(self):
+        import io
+        import zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for p in FIXTURE_REPO.rglob("*"):
+                if p.is_file() and ".git" not in p.parts:
+                    zf.write(p, p.relative_to(FIXTURE_REPO.parent))
+        buf.seek(0)
+        return buf
+
+    def test_upload_zip_success(self):
+        buf = self._make_zip()
+        resp = client.post("/api/upload", files={"file": ("test_backend.zip", buf, "application/zip")})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["repo_name"] == "test_backend"
+        assert data["total_files"] > 0
+        assert len(data["frameworks"]) > 0
+        assert len(data["dependency_graph"]["nodes"]) > 0
+
+    def test_upload_non_zip_rejected(self):
+        import io
+        buf = io.BytesIO(b"not a zip")
+        resp = client.post("/api/upload", files={"file": ("test.txt", buf, "text/plain")})
+        assert resp.status_code == 400
+
+    def test_upload_invalid_zip(self):
+        import io
+        buf = io.BytesIO(b"PK\x03\x04corrupted")
+        resp = client.post("/api/upload", files={"file": ("bad.zip", buf, "application/zip")})
+        assert resp.status_code == 400

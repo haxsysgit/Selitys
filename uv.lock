@@ -731,7 +731,7 @@ wheels = [
 
 [[package]]
 name = "selitys"
-version = "3.2.0"
+version = "3.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "pathspec" },
