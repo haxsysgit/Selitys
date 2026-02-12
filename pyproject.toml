@@ -1,6 +1,6 @@
 [project]
 name = "selitys"
-version = "2.2.0"
+version = "2.3.0"
 description = "A developer onboarding tool that explains backend codebases"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -15,6 +15,11 @@ dependencies = [
 
 [project.scripts]
 selitys = "selitys.cli:app"
+
+[project.optional-dependencies]
+llm = [
+    "httpx>=0.28.1",
+]
 
 [build-system]
 requires = ["hatchling"]

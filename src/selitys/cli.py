@@ -207,6 +207,29 @@ def ask(
         ...,
         help="Question about the codebase (e.g. 'what frameworks are used?')",
     ),
+    llm: bool = typer.Option(
+        False,
+        "--llm",
+        help="Use an LLM for richer answers (requires httpx and an API key)",
+    ),
+    api_key: str = typer.Option(
+        None,
+        "--api-key",
+        envvar="SELITYS_API_KEY",
+        help="API key for the LLM provider (or set SELITYS_API_KEY / OPENAI_API_KEY)",
+    ),
+    base_url: str = typer.Option(
+        None,
+        "--base-url",
+        envvar="SELITYS_BASE_URL",
+        help="Base URL for an OpenAI-compatible API (default: OpenAI)",
+    ),
+    model: str = typer.Option(
+        None,
+        "--model",
+        envvar="SELITYS_MODEL",
+        help="Model name to use (default: gpt-4o-mini)",
+    ),
     max_file_size: int = typer.Option(
         2_000_000,
         "--max-file-size",
@@ -233,13 +256,30 @@ def ask(
         analyzer = Analyzer(structure)
         analysis = analyzer.analyze()
 
+    console.print()
+    console.print(f"[bold cyan]Q:[/bold cyan] {question}")
+    console.print()
+
+    if llm:
+        from selitys.core.qa_llm import ask_llm
+
+        with console.status("[bold green]Thinking..."):
+            response = ask_llm(
+                structure,
+                analysis,
+                question,
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+            )
+
+        console.print(response)
+        console.print()
+        return
+
+    # Keyword-based fallback
     qa = QuestionAnswerer(structure, analysis)
     answer = qa.ask(question)
-
-    # Display answer
-    console.print()
-    console.print(f"[bold cyan]Q:[/bold cyan] {answer.question}")
-    console.print()
 
     if answer.confidence == "low":
         console.print(f"[yellow]{answer.summary}[/yellow]")
@@ -257,6 +297,8 @@ def ask(
         for f in answer.related_files[:10]:
             console.print(f"  [dim]{f}[/dim]")
 
+    console.print()
+    console.print("[dim]Tip: use --llm for richer AI-powered answers[/dim]")
     console.print()
 
 
