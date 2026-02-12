@@ -29,7 +29,7 @@ async function handleAnalyze() {
   <div class="flex items-center justify-center h-full">
     <div class="flex flex-col items-center gap-8 max-w-lg w-full px-8">
       <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-lg bg-accent" />
+        <img src="/logo.svg" alt="selitys" class="w-12 h-12" />
         <h1 class="text-3xl font-bold font-mono">selitys</h1>
       </div>
       <p class="text-text-secondary text-center text-sm leading-relaxed">

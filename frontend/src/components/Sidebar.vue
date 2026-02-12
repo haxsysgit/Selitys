@@ -23,7 +23,7 @@ const navItems = [
 <template>
   <aside class="w-60 shrink-0 bg-bg-inset flex flex-col px-4 py-6 gap-2 transition-colors duration-300">
     <router-link to="/" class="group flex items-center gap-2 pb-6 no-underline">
-      <div class="w-7 h-7 rounded-md bg-accent transition-transform duration-200 group-hover:scale-110" />
+      <img src="/logo.svg" alt="selitys" class="w-8 h-8 transition-transform duration-200 group-hover:scale-110" />
       <span class="font-mono text-lg font-bold text-text-primary">selitys</span>
     </router-link>
 

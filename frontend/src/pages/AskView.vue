@@ -103,7 +103,7 @@ function scrollToBottom() {
         <!-- Assistant message -->
         <div v-else-if="msg.role === 'assistant'" class="flex flex-col gap-3 bg-bg-inset rounded-xl p-5 max-w-[85%]">
           <div class="flex items-center gap-2">
-            <div class="w-5 h-5 rounded bg-accent" />
+            <img src="/logo.svg" alt="selitys" class="w-5 h-5" />
             <span class="font-mono text-xs font-semibold text-accent">selitys</span>
           </div>
           <div class="prose-chat text-sm leading-relaxed" v-html="renderMd(msg.content)"></div>
