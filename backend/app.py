@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -60,9 +64,52 @@ _cache: dict[str, tuple] = {}
 # ── Helpers ─────────────────────────────────────────────────────
 
 
+# Maps GitHub URL → local temp path so we don't re-clone
+_clone_cache: dict[str, str] = {}
+
+_GH_PATTERN = re.compile(
+    r"^https?://github\.com/([\w.-]+)/([\w.-]+?)(?:\.git)?/?$"
+)
+
+
+def _resolve_repo_path(raw_path: str) -> Path:
+    """Resolve a local path or GitHub URL to a local directory."""
+    match = _GH_PATTERN.match(raw_path.strip())
+    if match:
+        if raw_path in _clone_cache:
+            p = Path(_clone_cache[raw_path])
+            if p.is_dir():
+                return p
+
+        owner, repo_name = match.group(1), match.group(2)
+        tmp = Path(tempfile.mkdtemp(prefix=f"selitys-{owner}-{repo_name}-"))
+        try:
+            subprocess.run(
+                ["git", "clone", "--depth", "1", raw_path.strip(), str(tmp / repo_name)],
+                check=True, capture_output=True, text=True, timeout=120,
+            )
+        except subprocess.CalledProcessError as e:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise HTTPException(status_code=400, detail=f"Failed to clone repo: {e.stderr.strip()}")
+        except subprocess.TimeoutExpired:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise HTTPException(status_code=408, detail="Clone timed out (120s). Repo may be too large.")
+        except FileNotFoundError:
+            raise HTTPException(status_code=500, detail="git is not installed on this system.")
+
+        cloned = tmp / repo_name
+        _clone_cache[raw_path] = str(cloned)
+        return cloned
+
+    repo = Path(raw_path).resolve()
+    if not repo.is_dir():
+        raise HTTPException(status_code=400, detail=f"Not a valid directory: {raw_path}")
+    return repo
+
+
 def _run_scan_and_analysis(req: AnalyzeRequest | AskRequest):
     """Scan + analyze a repo. Returns (structure, analysis)."""
-    repo = Path(req.repo_path).resolve()
+    repo = _resolve_repo_path(req.repo_path)
     if not repo.is_dir():
         raise HTTPException(status_code=400, detail=f"Not a valid directory: {req.repo_path}")
 

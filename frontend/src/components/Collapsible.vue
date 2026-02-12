@@ -16,7 +16,7 @@ const open = ref(props.defaultOpen)
   <div class="bg-bg-surface rounded-xl overflow-hidden">
     <button
       @click="open = !open"
-      class="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-bg-inset/30 transition-colors"
+      class="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-bg-inset/30 transition-all duration-200 group"
     >
       <div class="flex items-center gap-3">
         <span

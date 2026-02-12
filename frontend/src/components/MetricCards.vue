@@ -39,7 +39,7 @@ const cards = computed(() => [
     <div
       v-for="card in cards"
       :key="card.label"
-      class="bg-bg-surface rounded-xl p-5 flex flex-col gap-2"
+      class="bg-bg-surface rounded-xl p-5 flex flex-col gap-2 transition-all duration-200 hover:scale-[1.02] hover:ring-1 hover:ring-accent/20 cursor-default"
     >
       <span class="text-[11px] font-semibold text-text-tertiary tracking-[2px]">{{ card.label }}</span>
       <span class="font-mono text-xl font-bold" :class="card.color">{{ card.value }}</span>

@@ -39,7 +39,10 @@ class JsTsAnalyzer:
         for file_info in self._js_ts_files(structure):
             if not file_info.content:
                 continue
-            parser = self._select_parser(file_info)
+            try:
+                parser = self._select_parser(file_info)
+            except (TypeError, Exception):
+                continue
             if parser is None:
                 continue
             tree = parser.parse(file_info.content.encode("utf-8"))
