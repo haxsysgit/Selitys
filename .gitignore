@@ -19,6 +19,7 @@ samples/
 selitys-v2-spec.md
 selitys.md
 selitys_prompt.md
+test_backend/
 
 # Frontend
 frontend/node_modules/
