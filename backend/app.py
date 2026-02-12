@@ -9,10 +9,11 @@ import subprocess
 import sys
 import tempfile
 import uuid
+import zipfile
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 # Load .env from project root so SELITYS_API_KEY etc. are available
@@ -318,10 +319,64 @@ async def get_results(repo_path: str):
     return _analysis_to_response(structure, analysis)
 
 
-@app.get("/api/health")
-async def health():
-    """Health check."""
-    return {"status": "ok", "version": __version__}
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+
+
+@app.post("/api/upload", response_model=AnalysisResponse)
+async def upload_zip(
+    file: UploadFile = File(...),
+    max_file_size: int = Query(2_000_000, description="Skip files larger than this (bytes)"),
+    respect_gitignore: bool = Query(True),
+):
+    """Upload a zip file of a codebase and analyze it."""
+    if not file.filename or not file.filename.endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Only .zip files are accepted.")
+
+    contents = await file.read()
+    if len(contents) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail=f"File too large. Max size is {MAX_UPLOAD_SIZE // (1024*1024)}MB.")
+
+    tmp = Path(tempfile.mkdtemp(prefix="selitys-upload-"))
+    zip_path = tmp / "upload.zip"
+    try:
+        zip_path.write_bytes(contents)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            # Security: reject paths that escape the directory
+            for name in zf.namelist():
+                resolved = (tmp / "repo" / name).resolve()
+                if not str(resolved).startswith(str(tmp)):
+                    shutil.rmtree(tmp, ignore_errors=True)
+                    raise HTTPException(status_code=400, detail="Zip contains unsafe paths.")
+            zf.extractall(tmp / "repo")
+
+        extract_dir = tmp / "repo"
+        # If the zip has a single top-level directory, use that as the root
+        top_items = list(extract_dir.iterdir())
+        if len(top_items) == 1 and top_items[0].is_dir():
+            extract_dir = top_items[0]
+
+        max_size = None if max_file_size <= 0 else max_file_size
+        scanner = RepoScanner(
+            extract_dir,
+            max_file_size_bytes=max_size,
+            respect_gitignore=respect_gitignore,
+        )
+        structure = scanner.scan()
+        analyzer = Analyzer(structure)
+        analysis = analyzer.analyze()
+
+        # Cache for /ask calls
+        cache_key = f"upload:{file.filename}"
+        _cache[cache_key] = (structure, analysis)
+
+        resp = _analysis_to_response(structure, analysis)
+        resp.repo_name = file.filename.removesuffix(".zip")
+        return resp
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="Invalid or corrupted zip file.")
+    finally:
+        # Clean up zip file but keep extracted dir for /ask cache
+        zip_path.unlink(missing_ok=True)
 
 
 # ── Static frontend serving (production) ─────────────────────────
