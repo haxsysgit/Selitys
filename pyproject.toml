@@ -20,6 +20,12 @@ selitys = "selitys.cli:app"
 llm = [
     "httpx>=0.28.1",
 ]
+backend = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "pydantic>=2.0.0",
+    "httpx>=0.28.1",
+]
 
 [build-system]
 requires = ["hatchling"]
