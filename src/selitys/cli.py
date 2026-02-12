@@ -1,6 +1,7 @@
 """selitys CLI - A developer onboarding tool that explains backend codebases."""
 
 from pathlib import Path
+from typing import Annotated, Optional
 
 import typer
 from rich.console import Console
@@ -99,54 +100,41 @@ def run_analysis(
 
 @app.command()
 def explain(
-    repo_path: Path = typer.Argument(
-        ...,
+    repo_path: Annotated[Path, typer.Argument(
         help="Path to the repository to analyze",
         exists=True,
         file_okay=False,
         dir_okay=True,
         resolve_path=True,
-    ),
-    output_dir: Path = typer.Option(
-        None,
-        "--output",
-        "-o",
+    )],
+    output_dir: Annotated[Optional[Path], typer.Option(
+        "--output", "-o",
         help="Output directory for generated files (default: current directory)",
-    ),
-    json_output: bool = typer.Option(
-        False,
-        "--json",
-        "-j",
+    )] = None,
+    json_output: Annotated[bool, typer.Option(
+        "--json", "-j",
         help="Output analysis as JSON file in addition to markdown",
-    ),
-    watch: bool = typer.Option(
-        False,
-        "--watch",
-        "-w",
+    )] = False,
+    watch: Annotated[bool, typer.Option(
+        "--watch", "-w",
         help="Watch for file changes and regenerate output automatically",
-    ),
-    max_file_size: int = typer.Option(
-        2_000_000,
+    )] = False,
+    max_file_size: Annotated[int, typer.Option(
         "--max-file-size",
         help="Skip files larger than this size in bytes (0 to disable)",
-    ),
-    respect_gitignore: bool = typer.Option(
-        True,
+    )] = 2_000_000,
+    respect_gitignore: Annotated[bool, typer.Option(
         "--respect-gitignore/--no-respect-gitignore",
         help="Respect .gitignore rules when scanning",
-    ),
-    include: list[str] = typer.Option(
-        None,
-        "--include",
-        "-i",
+    )] = True,
+    include: Annotated[Optional[list[str]], typer.Option(
+        "--include", "-i",
         help="Glob patterns to include (can be repeated)",
-    ),
-    exclude: list[str] = typer.Option(
-        None,
-        "--exclude",
-        "-x",
+    )] = None,
+    exclude: Annotated[Optional[list[str]], typer.Option(
+        "--exclude", "-x",
         help="Glob patterns to exclude (can be repeated)",
-    ),
+    )] = None,
 ) -> None:
     """Analyze a repository and generate explanation documents."""
     if output_dir is None:
@@ -195,51 +183,43 @@ def explain(
 
 @app.command()
 def ask(
-    repo_path: Path = typer.Argument(
-        ...,
+    repo_path: Annotated[Path, typer.Argument(
         help="Path to the repository to query",
         exists=True,
         file_okay=False,
         dir_okay=True,
         resolve_path=True,
-    ),
-    question: str = typer.Argument(
-        ...,
+    )],
+    question: Annotated[str, typer.Argument(
         help="Question about the codebase (e.g. 'what frameworks are used?')",
-    ),
-    llm: bool = typer.Option(
-        False,
+    )],
+    llm: Annotated[bool, typer.Option(
         "--llm",
         help="Use an LLM for richer answers (requires httpx and an API key)",
-    ),
-    api_key: str = typer.Option(
-        None,
+    )] = False,
+    api_key: Annotated[Optional[str], typer.Option(
         "--api-key",
         envvar="SELITYS_API_KEY",
         help="API key for the LLM provider (or set SELITYS_API_KEY / OPENAI_API_KEY)",
-    ),
-    base_url: str = typer.Option(
-        None,
+    )] = None,
+    base_url: Annotated[Optional[str], typer.Option(
         "--base-url",
         envvar="SELITYS_BASE_URL",
         help="Base URL for an OpenAI-compatible API (default: OpenAI)",
-    ),
-    model: str = typer.Option(
-        None,
+    )] = None,
+    model: Annotated[Optional[str], typer.Option(
         "--model",
         envvar="SELITYS_MODEL",
         help="Model name to use (default: gpt-4o-mini)",
-    ),
-    max_file_size: int = typer.Option(
-        2_000_000,
+    )] = None,
+    max_file_size: Annotated[int, typer.Option(
         "--max-file-size",
         help="Skip files larger than this size in bytes (0 to disable)",
-    ),
-    respect_gitignore: bool = typer.Option(
-        True,
+    )] = 2_000_000,
+    respect_gitignore: Annotated[bool, typer.Option(
         "--respect-gitignore/--no-respect-gitignore",
         help="Respect .gitignore rules when scanning",
-    ),
+    )] = True,
 ) -> None:
     """Ask a question about a codebase and get an instant answer."""
     max_size = None if max_file_size <= 0 else max_file_size
@@ -304,24 +284,21 @@ def ask(
 
 @app.command()
 def tree(
-    repo_path: Path = typer.Argument(
-        ...,
+    repo_path: Annotated[Path, typer.Argument(
         help="Path to the repository to visualize",
         exists=True,
         file_okay=False,
         dir_okay=True,
         resolve_path=True,
-    ),
-    max_file_size: int = typer.Option(
-        2_000_000,
+    )],
+    max_file_size: Annotated[int, typer.Option(
         "--max-file-size",
         help="Skip files larger than this size in bytes (0 to disable)",
-    ),
-    respect_gitignore: bool = typer.Option(
-        True,
+    )] = 2_000_000,
+    respect_gitignore: Annotated[bool, typer.Option(
         "--respect-gitignore/--no-respect-gitignore",
         help="Respect .gitignore rules when scanning",
-    ),
+    )] = True,
 ) -> None:
     """Show dependency tree and architectural layers of a codebase."""
     from rich.panel import Panel
